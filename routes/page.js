@@ -1,7 +1,7 @@
 const express = require('express');
-const Page = require('../models/Page');
+const Page = require('../models/page');
 const User = require('../models/User');
-const Category = require('../models/Category'); // Assuming you have a Category model
+const Category = require('../models/category'); // Assuming you have a Category model
 const router = express.Router();
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
