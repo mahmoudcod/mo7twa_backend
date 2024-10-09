@@ -1,5 +1,5 @@
 const express = require('express');
-const Category = require('../models/Category');
+const Category = require('../models/category');
 const Subcategory = require('../models/Subcategory');
 const router = express.Router();
 
