@@ -1,0 +1,57 @@
+const http = require('http')
+const querystring = require('querystring')
+
+const port = process.env.PORT || 8080
+
+
+const sendHI = (req, res) => {
+    res.end('hi')
+}
+
+
+const sendJson = (req, res) => {
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ text: 'hi', nums: [1, 3, 5] }))
+}
+
+
+const notFound = (req, res) => {
+    res.writeHead(404, { 'Content-Type': 'text/plain' })
+    res.end('page not found')
+}
+
+const echo = (req, res) => {
+    const { input = '' } = querystring.parse(
+        req.url
+            .split('?')
+            .slice(1)
+            .join('')
+
+    )
+
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({
+        normal: input,
+        uperCase: input.toUpperCase(),
+        characterCount: input.length,
+        backwords: input
+            .split('')
+            .reverse()
+            .join('')
+
+
+    }))
+
+}
+
+const server = http.createServer((req, res) => {
+    if (req.url === '/') return sendHI(req, res)
+    if (req.url === '/json') return sendJson(req, res)
+    if (req.url.match(/^\/echo/)) return echo(req, res)
+
+    notFound(req, res)
+})
+
+
+server.listen(port)
+console.log(`server listening on port ${port} `)
