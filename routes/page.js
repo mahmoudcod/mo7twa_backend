@@ -1,6 +1,6 @@
 const express = require('express');
 const Page = require('../models/page');
-const User = require('../models/User');
+const User = require('../models/user');
 const Category = require('../models/category'); // Assuming you have a Category model
 const router = express.Router();
 const multer = require('multer');
