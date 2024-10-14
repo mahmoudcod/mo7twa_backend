@@ -184,9 +184,9 @@ router.get('/:id', authenticateUser, async (req, res) => {
         }
 
         // Check if the user is the owner of the page or an admin
-        if (page.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-            return res.status(403).json({ message: 'Access denied' });
-        }
+        // if (page.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+        //     return res.status(403).json({ message: 'Access denied' });
+        // }
 
         res.status(200).json(page);
     } catch (error) {
