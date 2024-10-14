@@ -14,15 +14,30 @@ router.post('/', async (req, res) => {
     }
 });
 
-// Get All Categories
+// Get All Categories with Pagination
 router.get('/', async (req, res) => {
     try {
-        const categories = await Category.find().populate('subcategories');
-        res.status(200).json(categories);
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const totalCount = await Category.countDocuments();
+        const categories = await Category.find()
+            .populate('subcategories')
+            .skip(skip)
+            .limit(limit);
+
+        res.status(200).json({
+            categories,
+            totalCount,
+            currentPage: page,
+            totalPages: Math.ceil(totalCount / limit)
+        });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching categories', error });
     }
 });
+
 
 // Update Category
 router.put('/:id', async (req, res) => {
