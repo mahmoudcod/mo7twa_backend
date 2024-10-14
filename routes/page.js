@@ -59,28 +59,34 @@ async function extractTextFromFile(file) {
     return text;
 }
 
-//create page 
+// Create page
 router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
         const { name, description, category, instructions } = req.body;
 
-        // Upload image to Cloudinary if image file is provided
         let imageUrl = null;
         if (req.file) {
             const result = await cloudinary.uploader.upload(req.file.path);
-            imageUrl = result.secure_url; // Get the uploaded image's URL
+            imageUrl = result.secure_url;
         }
 
-        // Create and save the page
+        const existingCategory = await Category.findById(category);
+        if (!existingCategory) {
+            return res.status(400).json({ message: 'Invalid category' });
+        }
+
         const page = new Page({
             name,
             description,
             category,
             userInstructions: instructions,
-            image: imageUrl,  // Store the Cloudinary image URL
+            image: imageUrl,
             user: req.user._id
         });
         await page.save();
+
+        existingCategory.pages.push(page._id);
+        await existingCategory.save();
 
         res.status(201).json(page);
     } catch (error) {
@@ -194,7 +200,6 @@ router.get('/:id', authenticateUser, async (req, res) => {
         res.status(500).json({ message: 'Error fetching page', error: error.message });
     }
 });
-
 // Update Page
 router.put('/:id', authenticateUser, upload.single('image'), async (req, res) => {
     try {
@@ -207,26 +212,34 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
             return res.status(404).json({ message: 'Page not found' });
         }
 
-        // Check if the user is the owner of the page or an admin
         if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied' });
         }
 
-        // Upload new image to Cloudinary if a new one is provided
+        if (category && category !== page.category.toString()) {
+            await Category.findByIdAndUpdate(page.category, { $pull: { pages: page._id } });
+
+            const newCategory = await Category.findById(category);
+            if (!newCategory) {
+                return res.status(400).json({ message: 'Invalid category' });
+            }
+            newCategory.pages.push(page._id);
+            await newCategory.save();
+        }
+
         let imageUrl = page.image;
         if (req.file) {
             const result = await cloudinary.uploader.upload(req.file.path);
-            imageUrl = result.secure_url; // Get the new image's Cloudinary URL
+            imageUrl = result.secure_url;
         }
 
-        // Update the page
         page = await Page.findByIdAndUpdate(id, {
             name,
             description,
             category,
             userInstructions: instructions,
-            image: imageUrl,  // Update the image URL if a new one is provided
-        }, { new: true });
+            image: imageUrl,
+        }, { new: true }).populate('category');
 
         res.status(200).json(page);
     } catch (error) {
@@ -245,14 +258,14 @@ router.delete('/:id', authenticateUser, async (req, res) => {
             return res.status(404).json({ message: 'Page not found' });
         }
 
-        // Check if the user is the owner of the page or an admin
         if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied' });
         }
 
+        await Category.findByIdAndUpdate(page.category, { $pull: { pages: page._id } });
+
         await Page.findByIdAndDelete(id);
 
-        // Remove the page reference from the user's aiInteractions
         await User.findByIdAndUpdate(req.user._id, { $pull: { aiInteractions: id } });
 
         res.status(200).json({ message: 'Page deleted successfully' });
@@ -260,5 +273,6 @@ router.delete('/:id', authenticateUser, async (req, res) => {
         res.status(500).json({ message: 'Error deleting page', error: error.message });
     }
 });
+
 
 module.exports = router;
