@@ -10,10 +10,10 @@ const pageSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    category: {
+    category: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Category'
-    },
+    }],
     user: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
