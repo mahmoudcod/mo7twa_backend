@@ -62,7 +62,7 @@ async function extractTextFromFile(file) {
 // Create page
 router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
-        const { name, description, category, instructions } = req.body;
+        const { name, description, categories, instructions } = req.body;
 
         let imageUrl = null;
         if (req.file) {
@@ -70,23 +70,28 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
             imageUrl = result.secure_url;
         }
 
-        const existingCategory = await Category.findById(category);
-        if (!existingCategory) {
-            return res.status(400).json({ message: 'Invalid category' });
+        // Validate categories
+        const categoryIds = Array.isArray(categories) ? categories : [categories];
+        const validCategories = await Category.find({ _id: { $in: categoryIds } });
+
+        if (validCategories.length !== categoryIds.length) {
+            return res.status(400).json({ message: 'One or more invalid categories' });
         }
 
         const page = new Page({
             name,
             description,
-            category,
+            categories: validCategories.map(cat => cat._id),
             userInstructions: instructions,
             image: imageUrl,
             user: req.user._id
         });
         await page.save();
 
-        existingCategory.pages.push(page._id);
-        await existingCategory.save();
+        // Add page to each category
+        await Promise.all(validCategories.map(category =>
+            Category.findByIdAndUpdate(category._id, { $push: { pages: page._id } })
+        ));
 
         res.status(201).json(page);
     } catch (error) {
@@ -94,6 +99,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         res.status(500).json({ message: 'Error creating page', error: error.message });
     }
 });
+
 
 // Generate AI response for user input and optional file
 router.post('/generate', authenticateUser, upload.single('file'), async (req, res) => {
