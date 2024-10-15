@@ -62,7 +62,7 @@ async function extractTextFromFile(file) {
 // Create page
 router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
-        const { name, description, categories, instructions } = req.body;
+        const { name, description, category, instructions } = req.body;
 
         let imageUrl = null;
         if (req.file) {
@@ -71,7 +71,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         }
 
         // Validate categories
-        const categoryIds = Array.isArray(categories) ? categories : [categories];
+        const categoryIds = Array.isArray(category) ? category : [category];
         const validCategories = await Category.find({ _id: { $in: categoryIds } });
 
         if (validCategories.length !== categoryIds.length) {
@@ -81,7 +81,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         const page = new Page({
             name,
             description,
-            categories: validCategories.map(cat => cat._id),
+            category: validCategories.map(cat => cat._id),
             userInstructions: instructions,
             image: imageUrl,
             user: req.user._id
