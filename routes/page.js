@@ -212,47 +212,69 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
         const { id } = req.params;
         const { name, description, category, instructions } = req.body;
 
-        let page = await Page.findById(id);
+        let page = await Page.findById(id).populate('category');  // Make sure to populate category for proper comparison
 
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
         }
 
+        // Ensure only the user who owns the page or admin can update it
         if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied' });
         }
 
-        if (category && category !== page.category.toString()) {
-            await Category.findByIdAndUpdate(page.category, { $pull: { pages: page._id } });
+        // Handle category updates (for multiple categories)
+        if (category) {
+            const newCategories = Array.isArray(category) ? category : [category]; // Ensure it's an array
 
-            const newCategory = await Category.findById(category);
-            if (!newCategory) {
-                return res.status(400).json({ message: 'Invalid category' });
+            // Remove page from old categories
+            const oldCategories = page.category.map(cat => cat._id.toString());  // Array of old category IDs
+            for (const oldCatId of oldCategories) {
+                if (!newCategories.includes(oldCatId)) {
+                    await Category.findByIdAndUpdate(oldCatId, { $pull: { pages: page._id } });
+                }
             }
-            newCategory.pages.push(page._id);
-            await newCategory.save();
+
+            // Add page to new categories
+            for (const newCatId of newCategories) {
+                if (!oldCategories.includes(newCatId)) {
+                    const newCategory = await Category.findById(newCatId);
+                    if (!newCategory) {
+                        return res.status(400).json({ message: 'Invalid category' });
+                    }
+                    newCategory.pages.push(page._id);
+                    await newCategory.save();
+                }
+            }
+
+            // Update page category
+            page.category = newCategories;
         }
 
+        // Handle image upload with Cloudinary
         let imageUrl = page.image;
         if (req.file) {
             const result = await cloudinary.uploader.upload(req.file.path);
             imageUrl = result.secure_url;
         }
 
-        page = await Page.findByIdAndUpdate(id, {
-            name,
-            description,
-            category,
-            userInstructions: instructions,
-            image: imageUrl,
-        }, { new: true }).populate('category');
+        // Update page fields
+        page.name = name;
+        page.description = description;
+        page.userInstructions = instructions;
+        page.image = imageUrl;
 
+        // Save the updated page
+        await page.save();
+
+        // Return updated page data
         res.status(200).json(page);
     } catch (error) {
         console.error('Server error:', error);
         res.status(500).json({ message: 'Error updating page', error: error.message });
     }
 });
+
 
 // Delete Page
 router.delete('/:id', authenticateUser, async (req, res) => {
