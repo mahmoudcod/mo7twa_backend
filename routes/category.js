@@ -9,9 +9,25 @@ const router = express.Router();
 // Create Category
 router.post('/', async (req, res) => {
     try {
-        const category = new Category(req.body);
-        await category.save();
-        res.status(201).json(category);
+        const { pages, ...categoryData } = req.body;  // Extract pages and other category data
+
+        // 1. Create the category
+        const newCategory = await Category.create(categoryData);
+
+        // 2. If there are pages to link, update their 'categories' field
+        if (pages && pages.length > 0) {
+            await Page.updateMany(
+                { _id: { $in: pages } },
+                { $push: { categories: newCategory._id } }  // Push the new category to the pages
+            );
+        }
+
+        // 3. Optionally populate the new category with pages and subcategories
+        const populatedCategory = await Category.findById(newCategory._id)
+            .populate('subcategories')
+            .populate('pages');
+
+        res.status(201).json(populatedCategory);
     } catch (error) {
         res.status(500).json({ message: 'Error creating category', error });
     }
@@ -40,18 +56,39 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Update Category
+//update category
 router.put('/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const { removedPages, addedPages } = req.body; // Assume we pass pages to add and remove
+
+        // 1. Find and update the category with new pages
         const updatedCategory = await Category.findByIdAndUpdate(id, req.body, { new: true })
             .populate('subcategories')
             .populate('pages');
+
+        // 2. Remove the category reference from the removed pages
+        if (removedPages && removedPages.length > 0) {
+            await Page.updateMany(
+                { _id: { $in: removedPages } },
+                { $pull: { categories: id } }  // Pull the category from the pages
+            );
+        }
+
+        // 3. Add the category reference to the added pages
+        if (addedPages && addedPages.length > 0) {
+            await Page.updateMany(
+                { _id: { $in: addedPages } },
+                { $push: { categories: id } }  // Push the category to the pages
+            );
+        }
+
         res.status(200).json(updatedCategory);
     } catch (error) {
         res.status(500).json({ message: 'Error updating category', error });
     }
 });
+
 
 // Delete Category
 router.delete('/:id', async (req, res) => {
