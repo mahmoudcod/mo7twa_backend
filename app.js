@@ -35,7 +35,7 @@ app.use(express.json()); // Parse JSON request body
 app.use('/api/pages', pageRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/auth', authRoutes);
-app.use('api/products', productRoutes)
+app.use('/api/products', productRoutes)
 
 // Start the server
 app.listen(PORT, () => {
