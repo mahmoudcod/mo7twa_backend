@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const pageRoutes = require('./routes/page');
 const categoryRoutes = require('./routes/category');
 const authRoutes = require('./routes/auth')
+const productRoutes = require('./routes/product')
 const cloudinary = require('cloudinary').v2;
 
 // Load environment variables from .env
@@ -34,6 +35,7 @@ app.use(express.json()); // Parse JSON request body
 app.use('/api/pages', pageRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/auth', authRoutes);
+app.use('api/products', productRoutes)
 
 // Start the server
 app.listen(PORT, () => {
