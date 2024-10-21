@@ -12,7 +12,7 @@ const pageSchema = new mongoose.Schema({
     },
     category: [{
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'category'
+        ref: 'Category'
     }],
     user: {
         type: mongoose.Schema.Types.ObjectId,
