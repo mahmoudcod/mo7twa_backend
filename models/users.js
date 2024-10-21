@@ -35,6 +35,8 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
+
     aiInteractions: [
         {
             userInput: { type: String, required: true },
