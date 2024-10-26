@@ -154,8 +154,10 @@ router.post('/generate', authenticateUser, upload.single('file'), async (req, re
 // Get all pages for a user
 router.get('/my-pages', authenticateUser, async (req, res) => {
     try {
-        const pages = await Page.find({ user: req.user._id }).populate('category');
-        res.status(200).json(pages);
+        if (!req.user.isAdmin) {
+            return res.status(403).json({ message: 'Access denied. Admin only.' });
+        }
+        res.status(200).json(req.body)
     } catch (error) {
         res.status(500).json({ message: 'Error fetching pages', error: error.message });
     }
