@@ -21,8 +21,8 @@ router.get('/', async (req, res) => {
             .skip(skip)
             .limit(limitNum)
             // Add any needed populate() calls here
-            // .populate('category')
-            // .populate('users')
+            .populate('category')
+            .populate('pages')
             .exec();
 
         // Get total count for pagination
