@@ -1,32 +1,26 @@
-
-// routes/products.js
 const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
 const User = require('../models/users');
 
+// We'll need to update the Product model to remove the general expirationDate
+// and add a userAccess array to track per-user access periods
+
 // Get all products with pagination
 router.get('/', async (req, res) => {
     try {
-        // Get page and limit from query parameters, set defaults
         const { page = 1, limit = 10 } = req.query;
         const skip = (page - 1) * limit;
-
-        // Convert to numbers
         const pageNum = Number(page);
         const limitNum = Number(limit);
 
-        // Get paginated products
         const products = await Product.find()
             .skip(skip)
             .limit(limitNum)
-            // Add any needed populate() calls here
             .exec();
 
-        // Get total count for pagination
         const totalCount = await Product.countDocuments();
 
-        // Send paginated response
         res.json({
             products,
             currentPage: pageNum,
@@ -35,7 +29,6 @@ router.get('/', async (req, res) => {
             hasNextPage: pageNum * limitNum < totalCount,
             hasPrevPage: pageNum > 1
         });
-
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -46,9 +39,10 @@ router.post('/', async (req, res) => {
     const product = new Product({
         name: req.body.name,
         promptLimit: req.body.promptLimit,
-        expirationDate: req.body.expirationDate,
+        accessPeriodDays: req.body.accessPeriodDays, // New field instead of expirationDate
         pages: req.body.pages,
-        category: req.body.category
+        category: req.body.category,
+        userAccess: [] // Array to store user-specific access periods
     });
 
     try {
@@ -60,7 +54,25 @@ router.post('/', async (req, res) => {
 });
 
 // Get a specific product
-router.get('/:id', getProduct, (req, res) => {
+router.get('/:id', getProduct, async (req, res) => {
+    // If user ID is provided, include their specific access information
+    const userId = req.query.userId;
+    if (userId) {
+        const userAccess = res.product.userAccess.find(
+            access => access.userId.toString() === userId
+        );
+
+        const productData = res.product.toObject();
+        productData.userAccessInfo = userAccess ? {
+            startDate: userAccess.startDate,
+            endDate: userAccess.endDate,
+            isActive: userAccess.endDate > new Date(),
+            remainingDays: Math.ceil((userAccess.endDate - new Date()) / (1000 * 60 * 60 * 24))
+        } : null;
+
+        return res.json(productData);
+    }
+
     res.json(res.product);
 });
 
@@ -72,8 +84,8 @@ router.patch('/:id', getProduct, async (req, res) => {
     if (req.body.promptLimit != null) {
         res.product.promptLimit = req.body.promptLimit;
     }
-    if (req.body.expirationDate != null) {
-        res.product.expirationDate = req.body.expirationDate;
+    if (req.body.accessPeriodDays != null) {
+        res.product.accessPeriodDays = req.body.accessPeriodDays;
     }
     if (req.body.pages != null) {
         res.product.pages = req.body.pages;
@@ -90,16 +102,6 @@ router.patch('/:id', getProduct, async (req, res) => {
     }
 });
 
-// Delete a product
-router.delete('/:id', getProduct, async (req, res) => {
-    try {
-        await res.product.remove();
-        res.json({ message: 'Product deleted' });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-});
-
 // Grant user access to a product
 router.post('/:id/grant-access', getProduct, async (req, res) => {
     const userId = req.body.userId;
@@ -110,14 +112,75 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        if (!res.product.users.includes(userId)) {
-            res.product.users.push(userId);
-            user.products.push(res.product._id);
-            await res.product.save();
-            await user.save();
+        // Check if user already has access
+        const existingAccess = res.product.userAccess.find(
+            access => access.userId.toString() === userId
+        );
+
+        if (existingAccess) {
+            return res.status(400).json({ message: 'User already has access to this product' });
         }
 
-        res.json({ message: 'Access granted to user' });
+        // Calculate access period
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + res.product.accessPeriodDays);
+
+        // Add user access record
+        res.product.userAccess.push({
+            userId: userId,
+            startDate: startDate,
+            endDate: endDate
+        });
+
+        // Add product to user's products array if not already there
+        if (!user.products.includes(res.product._id)) {
+            user.products.push(res.product._id);
+        }
+
+        await res.product.save();
+        await user.save();
+
+        res.json({
+            message: 'Access granted to user',
+            accessPeriod: {
+                startDate,
+                endDate,
+                daysRemaining: res.product.accessPeriodDays
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Check user's access status for a product
+router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
+    try {
+        const userAccess = res.product.userAccess.find(
+            access => access.userId.toString() === req.params.userId
+        );
+
+        if (!userAccess) {
+            return res.json({
+                hasAccess: false,
+                message: 'User does not have access to this product'
+            });
+        }
+
+        const now = new Date();
+        const isActive = userAccess.endDate > now;
+        const remainingDays = Math.ceil((userAccess.endDate - now) / (1000 * 60 * 60 * 24));
+
+        res.json({
+            hasAccess: isActive,
+            startDate: userAccess.startDate,
+            endDate: userAccess.endDate,
+            remainingDays: isActive ? remainingDays : 0,
+            message: isActive ?
+                `Access active with ${remainingDays} days remaining` :
+                'Access period has expired'
+        });
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
@@ -134,7 +197,6 @@ async function getProduct(req, res, next) {
     } catch (err) {
         return res.status(500).json({ message: err.message });
     }
-
     res.product = product;
     next();
 }
