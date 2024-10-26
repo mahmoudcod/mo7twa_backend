@@ -13,11 +13,9 @@ const ProductSchema = new mongoose.Schema({
     users: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     startDate: {
         type: Date,
-        required: true
     },
     endDate: {
         type: Date,
-        required: true
     }
 });
 
