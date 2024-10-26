@@ -5,11 +5,39 @@ const router = express.Router();
 const Product = require('../models/Product');
 const User = require('../models/users');
 
-// Get all products
+// Get all products with pagination
 router.get('/', async (req, res) => {
     try {
-        const products = await Product.find();
-        res.json(products);
+        // Get page and limit from query parameters, set defaults
+        const { page = 1, limit = 10 } = req.query;
+        const skip = (page - 1) * limit;
+
+        // Convert to numbers
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+
+        // Get paginated products
+        const products = await Product.find()
+            .skip(skip)
+            .limit(limitNum)
+            // Add any needed populate() calls here
+            // .populate('category')
+            // .populate('users')
+            .exec();
+
+        // Get total count for pagination
+        const totalCount = await Product.countDocuments();
+
+        // Send paginated response
+        res.json({
+            products,
+            currentPage: pageNum,
+            totalPages: Math.ceil(totalCount / limitNum),
+            totalCount,
+            hasNextPage: pageNum * limitNum < totalCount,
+            hasPrevPage: pageNum > 1
+        });
+
     } catch (err) {
         res.status(500).json({ message: err.message });
     }
