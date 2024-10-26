@@ -3,7 +3,6 @@ const router = express.Router();
 const Product = require('../models/Product');
 const User = require('../models/users');
 
-
 // Get all products with pagination
 router.get('/', async (req, res) => {
     try {
@@ -99,16 +98,6 @@ router.patch('/:id', getProduct, async (req, res) => {
         res.status(400).json({ message: err.message });
     }
 });
-// Delete a specific product
-router.delete('/:id', getProduct, async (req, res) => {
-    try {
-        await res.product.remove(); // Delete the product found by middleware
-        res.json({ message: 'Product deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ message: 'Error deleting product: ' + err.message });
-    }
-});
-
 
 // Grant user access to a product
 router.post('/:id/grant-access', getProduct, async (req, res) => {
@@ -194,6 +183,7 @@ router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
     }
 });
 
+
 // Middleware function to get a product by ID
 async function getProduct(req, res, next) {
     let product;
@@ -208,5 +198,17 @@ async function getProduct(req, res, next) {
     res.product = product;
     next();
 }
+
+// Delete a specific product
+router.delete('/:id', getProduct, async (req, res) => {
+    try {
+        await res.product.deleteOne(); // Use deleteOne() here
+        res.json({ message: 'Product deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ message: 'Error deleting product: ' + err.message });
+    }
+});
+
+
 
 module.exports = router;
