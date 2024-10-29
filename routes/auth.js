@@ -102,6 +102,7 @@ router.post('/create-admin', async (req, res) => {
         res.status(500).json({ message: 'Error creating admin', error: error.message });
     }
 });
+
 // Admin: Get all users with pagination
 router.get('/admin/users', isAdmin, async (req, res) => {
     const { page = 1, limit = 30 } = req.query;
@@ -112,19 +113,18 @@ router.get('/admin/users', isAdmin, async (req, res) => {
 
     try {
         const users = await User.find().select('-password').limit(options.limit).skip((options.page - 1) * options.limit);
-        const totalCount = await User.countDocuments(); // Get total user count
+        const totalCount = await User.countDocuments();
 
-        res.json({ users, totalCount }); // Return users and total count
+        res.json({ users, totalCount });
     } catch (error) {
         res.status(500).json({ message: 'Error fetching users', error: error.message });
     }
 });
 
-
 // Admin: Get one user by ID
 router.get('/admin/users/:userId', isAdmin, async (req, res) => {
     try {
-        const user = await User.findById(req.params.userId).select('-password'); // Exclude the password field for security
+        const user = await User.findById(req.params.userId).select('-password');
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -134,6 +134,57 @@ router.get('/admin/users/:userId', isAdmin, async (req, res) => {
     }
 });
 
+// NEW ROUTE: Get user's products
+router.get('/admin/users/:userId/products', isAdmin, async (req, res) => {
+    try {
+        const user = await User.findById(req.params.userId)
+            .populate({
+                path: 'products',
+                populate: {
+                    path: 'userAccess.userId',
+                    select: 'name email'
+                }
+            });
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Add access status for each product
+        const productsWithStatus = user.products.map(product => {
+            const userAccess = product.userAccess.find(
+                access => access.userId._id.toString() === user._id.toString()
+            );
+
+            const now = new Date();
+            const isActive = userAccess && userAccess.endDate > now;
+            const remainingDays = isActive
+                ? Math.ceil((userAccess.endDate - now) / (1000 * 60 * 60 * 24))
+                : 0;
+
+            return {
+                ...product.toObject(),
+                accessStatus: {
+                    isActive,
+                    startDate: userAccess?.startDate,
+                    endDate: userAccess?.endDate,
+                    remainingDays
+                }
+            };
+        });
+
+        res.json({
+            userId: user._id,
+            email: user.email,
+            products: productsWithStatus
+        });
+    } catch (error) {
+        res.status(500).json({
+            message: 'Error fetching user products',
+            error: error.message
+        });
+    }
+});
 
 // Admin: Get unconfirmed users
 router.get('/admin/unconfirmed-users', isAdmin, async (req, res) => {
@@ -173,6 +224,5 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
         res.status(500).json({ message: 'Error deleting user', error: error.message });
     }
 });
-
 
 module.exports = router;
