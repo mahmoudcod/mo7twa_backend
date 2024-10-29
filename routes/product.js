@@ -109,7 +109,11 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Check if user already has access
+        // Ensure `userAccess` exists
+        if (!res.product.userAccess) {
+            res.product.userAccess = [];
+        }
+
         const existingAccess = res.product.userAccess.find(
             access => access.userId.toString() === userId
         );
@@ -118,19 +122,17 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             return res.status(400).json({ message: 'User already has access to this product' });
         }
 
-        // Calculate access period
+        // Proceed to grant access if `existingAccess` is not found
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + res.product.accessPeriodDays);
 
-        // Add user access record
         res.product.userAccess.push({
             userId: userId,
             startDate: startDate,
             endDate: endDate
         });
 
-        // Add product to user's products array if not already there
         if (!user.products.includes(res.product._id)) {
             user.products.push(res.product._id);
         }
@@ -147,9 +149,11 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             }
         });
     } catch (err) {
+        console.error("Error in grant-access:", err); // Log error for debugging
         res.status(500).json({ message: err.message });
     }
 });
+
 
 // Check user's access status for a product
 router.get('/:id/check-access/:userId', getProduct, async (req, res) => {

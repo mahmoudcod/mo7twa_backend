@@ -1,5 +1,21 @@
 const mongoose = require('mongoose');
 
+const userProductSettingsSchema = new mongoose.Schema({
+    productId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Product'
+    },
+    customPromptLimit: Number,
+    customPages: [String],
+    customAccessPeriodDays: Number,
+    startDate: Date,
+    endDate: Date,
+    isActive: {
+        type: Boolean,
+        default: true
+    }
+});
+
 const userSchema = new mongoose.Schema({
     email: {
         type: String,
@@ -36,7 +52,7 @@ const userSchema = new mongoose.Schema({
         default: false
     },
     products: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
-
+    productSettings: [userProductSettingsSchema],
     aiInteractions: [
         {
             userInput: { type: String, required: true },
