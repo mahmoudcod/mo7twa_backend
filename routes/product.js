@@ -6,17 +6,24 @@ const User = require('../models/users');
 // Get all products with pagination
 router.get('/', async (req, res) => {
     try {
-        const { page = 1, limit = 10 } = req.query;
+        const { page = 1, limit = 10, category } = req.query;
         const skip = (page - 1) * limit;
         const pageNum = Number(page);
         const limitNum = Number(limit);
 
-        const products = await Product.find()
+        // Build query filter
+        const filter = {};
+        if (category) {
+            filter.category = { $in: Array.isArray(category) ? category : [category] };
+        }
+
+        const products = await Product.find(filter)
+            .populate('userAccess.userId', 'name email')
             .skip(skip)
             .limit(limitNum)
             .exec();
 
-        const totalCount = await Product.countDocuments();
+        const totalCount = await Product.countDocuments(filter);
 
         res.json({
             products,
@@ -36,10 +43,10 @@ router.post('/', async (req, res) => {
     const product = new Product({
         name: req.body.name,
         promptLimit: req.body.promptLimit,
-        accessPeriodDays: req.body.accessPeriodDays, // New field instead of expirationDate
+        accessPeriodDays: req.body.accessPeriodDays,
         pages: req.body.pages,
-        category: req.body.category,
-        userAccess: [] // Array to store user-specific access periods
+        category: Array.isArray(req.body.category) ? req.body.category : [req.body.category],
+        userAccess: []
     });
 
     try {
@@ -52,46 +59,71 @@ router.post('/', async (req, res) => {
 
 // Get a specific product
 router.get('/:id', getProduct, async (req, res) => {
-    // If user ID is provided, include their specific access information
-    const userId = req.query.userId;
-    if (userId) {
-        const userAccess = res.product.userAccess.find(
-            access => access.userId.toString() === userId
-        );
+    try {
+        const product = await Product.findById(req.params.id)
+            .populate('userAccess.userId', 'name email');
 
-        const productData = res.product.toObject();
-        productData.userAccessInfo = userAccess ? {
-            startDate: userAccess.startDate,
-            endDate: userAccess.endDate,
-            isActive: userAccess.endDate > new Date(),
-            remainingDays: Math.ceil((userAccess.endDate - new Date()) / (1000 * 60 * 60 * 24))
-        } : null;
+        if (req.query.userId) {
+            const userAccess = product.userAccess.find(
+                access => access.userId._id.toString() === req.query.userId
+            );
 
-        return res.json(productData);
+            const productData = product.toObject();
+            productData.userAccessInfo = userAccess ? {
+                startDate: userAccess.startDate,
+                endDate: userAccess.endDate,
+                isActive: userAccess.endDate > new Date(),
+                remainingDays: Math.ceil((userAccess.endDate - new Date()) / (1000 * 60 * 60 * 24))
+            } : null;
+
+            return res.json(productData);
+        }
+
+        res.json(product);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
     }
-
-    res.json(res.product);
 });
 
 // Update a product
 router.patch('/:id', getProduct, async (req, res) => {
-    if (req.body.name != null) {
-        res.product.name = req.body.name;
-    }
-    if (req.body.promptLimit != null) {
-        res.product.promptLimit = req.body.promptLimit;
-    }
-    if (req.body.accessPeriodDays != null) {
-        res.product.accessPeriodDays = req.body.accessPeriodDays;
-    }
-    if (req.body.pages != null) {
-        res.product.pages = req.body.pages;
-    }
-    if (req.body.category != null) {
-        res.product.category = req.body.category;
-    }
-
     try {
+        if (req.body.name != null) {
+            res.product.name = req.body.name;
+        }
+        if (req.body.promptLimit != null) {
+            res.product.promptLimit = req.body.promptLimit;
+        }
+        if (req.body.accessPeriodDays != null) {
+            res.product.accessPeriodDays = req.body.accessPeriodDays;
+        }
+        if (req.body.pages != null) {
+            res.product.pages = req.body.pages;
+        }
+        if (req.body.category != null) {
+            // Ensure category is always an array
+            res.product.category = Array.isArray(req.body.category)
+                ? req.body.category
+                : [req.body.category];
+        }
+
+        // Handle category operations if provided
+        if (req.body.addCategories) {
+            const categoriesToAdd = Array.isArray(req.body.addCategories)
+                ? req.body.addCategories
+                : [req.body.addCategories];
+            res.product.category = [...new Set([...res.product.category, ...categoriesToAdd])];
+        }
+
+        if (req.body.removeCategories) {
+            const categoriesToRemove = Array.isArray(req.body.removeCategories)
+                ? req.body.removeCategories
+                : [req.body.removeCategories];
+            res.product.category = res.product.category.filter(
+                cat => !categoriesToRemove.includes(cat)
+            );
+        }
+
         const updatedProduct = await res.product.save();
         res.json(updatedProduct);
     } catch (err) {
@@ -104,14 +136,9 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
     const userId = req.body.userId;
 
     try {
-        const user = await User.findById(userId);
+        const user = await User.findById(userId).populate('products');
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Ensure `userAccess` exists
-        if (!res.product.userAccess) {
-            res.product.userAccess = [];
         }
 
         const existingAccess = res.product.userAccess.find(
@@ -122,7 +149,6 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             return res.status(400).json({ message: 'User already has access to this product' });
         }
 
-        // Proceed to grant access if `existingAccess` is not found
         const startDate = new Date();
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + res.product.accessPeriodDays);
@@ -133,15 +159,21 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             endDate: endDate
         });
 
-        if (!user.products.includes(res.product._id)) {
+        if (!user.products.some(p => p._id.toString() === res.product._id.toString())) {
             user.products.push(res.product._id);
         }
 
-        await res.product.save();
-        await user.save();
+        await Promise.all([
+            res.product.save(),
+            user.save()
+        ]);
+
+        const updatedProduct = await Product.findById(res.product._id)
+            .populate('userAccess.userId', 'name email');
 
         res.json({
-            message: 'Access granted to user',
+            message: 'Access granted successfully',
+            product: updatedProduct,
             accessPeriod: {
                 startDate,
                 endDate,
@@ -149,17 +181,19 @@ router.post('/:id/grant-access', getProduct, async (req, res) => {
             }
         });
     } catch (err) {
-        console.error("Error in grant-access:", err); // Log error for debugging
+        console.error("Error in grant-access:", err);
         res.status(500).json({ message: err.message });
     }
 });
 
-
 // Check user's access status for a product
 router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
     try {
-        const userAccess = res.product.userAccess.find(
-            access => access.userId.toString() === req.params.userId
+        const product = await Product.findById(req.params.id)
+            .populate('userAccess.userId', 'name email');
+
+        const userAccess = product.userAccess.find(
+            access => access.userId._id.toString() === req.params.userId
         );
 
         if (!userAccess) {
@@ -175,6 +209,7 @@ router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
 
         res.json({
             hasAccess: isActive,
+            user: userAccess.userId,
             startDate: userAccess.startDate,
             endDate: userAccess.endDate,
             remainingDays: isActive ? remainingDays : 0,
@@ -187,32 +222,32 @@ router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
     }
 });
 
-
-// Middleware function to get a product by ID
-async function getProduct(req, res, next) {
-    let product;
-    try {
-        product = await Product.findById(req.params.id);
-        if (product == null) {
-            return res.status(404).json({ message: 'Product not found' });
-        }
-    } catch (err) {
-        return res.status(500).json({ message: err.message });
-    }
-    res.product = product;
-    next();
-}
-
-// Delete a specific product
+// Delete a product
 router.delete('/:id', getProduct, async (req, res) => {
     try {
-        await res.product.deleteOne(); // Use deleteOne() here
+        await User.updateMany(
+            { products: res.product._id },
+            { $pull: { products: res.product._id } }
+        );
+
+        await res.product.deleteOne();
         res.json({ message: 'Product deleted successfully' });
     } catch (err) {
         res.status(500).json({ message: 'Error deleting product: ' + err.message });
     }
 });
 
-
+async function getProduct(req, res, next) {
+    try {
+        const product = await Product.findById(req.params.id);
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+        res.product = product;
+        next();
+    } catch (err) {
+        return res.status(500).json({ message: err.message });
+    }
+}
 
 module.exports = router;
