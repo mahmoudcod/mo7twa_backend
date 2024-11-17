@@ -100,6 +100,43 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     }
 });
 
+// Clone Page
+router.post('/:id/clone', authenticateUser, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Fetch the page to be cloned
+        const originalPage = await Page.findById(id).populate('category');
+
+        if (!originalPage) {
+            return res.status(404).json({ message: 'Page to clone not found' });
+        }
+
+        // Create a cloned page
+        const clonedPage = new Page({
+            name: `${originalPage.name} (Copy)`, // Modify the name to indicate it's a copy
+            description: originalPage.description,
+            category: originalPage.category.map(cat => cat._id), // Keep the same categories
+            userInstructions: originalPage.userInstructions,
+            image: originalPage.image, // Use the same image
+            user: req.user._id // Associate with the user performing the clone
+        });
+
+        await clonedPage.save();
+
+        // Add the cloned page to associated categories
+        await Promise.all(
+            originalPage.category.map(category =>
+                Category.findByIdAndUpdate(category._id, { $push: { pages: clonedPage._id } })
+            )
+        );
+
+        res.status(201).json(clonedPage);
+    } catch (error) {
+        console.error('Server error:', error);
+        res.status(500).json({ message: 'Error cloning page', error: error.message });
+    }
+});
 
 // Generate AI response for user input and optional file
 router.post('/generate', authenticateUser, upload.single('file'), async (req, res) => {
