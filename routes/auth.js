@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/users');
+const Product = require('../models/products'); // Add this import
 const router = express.Router();
 
 // Middleware to check if user is admin
@@ -224,60 +225,48 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
         res.status(500).json({ message: 'Error deleting user', error: error.message });
     }
 });
-// NEW ROUTE: Admin - Revoke product access from user
+
+//  Revoke product access from user
 router.delete('/admin/users/:userId/products/:productId', isAdmin, async (req, res) => {
     const { userId, productId } = req.params;
 
     try {
-        // Fetch the user and the product
-        const user = await User.findById(userId).populate('products');
-        const product = await Product.findById(productId).populate('userAccess.userId', 'name email');
-        
+        // Fetch the user
+        const user = await User.findById(userId);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        // Fetch the product
+        const product = await Product.findById(productId);
         if (!product) {
             return res.status(404).json({ message: 'Product not found' });
         }
 
-        // Check if the user has access to the product
-        const userHasAccess = product.userAccess.some(access => access.userId.toString() === userId);
-
-        if (!userHasAccess) {
-            return res.status(400).json({ message: 'User does not have access to this product' });
+        // Remove the product from user's products array
+        const productIndex = user.products.indexOf(productId);
+        if (productIndex > -1) {
+            user.products.splice(productIndex, 1);
         }
-
-        // Remove the product from the user's products array
-        user.products = user.products.filter(product => 
-            product._id.toString() !== productId
-        );
         await user.save();
 
-        // Remove the user from the product's userAccess array
-        product.userAccess = product.userAccess.filter(access => 
-            access.userId.toString() !== userId
+        // Remove the user from product's userAccess array
+        product.userAccess = product.userAccess.filter(
+            access => access.userId.toString() !== userId
         );
         await product.save();
 
-        res.json({ 
+        res.json({
             message: 'Product access revoked successfully',
             userId: user._id,
-            productId: product._id,
-            updatedUser: {
-                _id: user._id,
-                products: user.products
-            },
-            updatedProduct: {
-                _id: product._id,
-                userAccess: product.userAccess
-            }
+            productId: product._id
         });
+
     } catch (error) {
         console.error('Error revoking product access:', error);
-        res.status(500).json({ 
-            message: 'Error revoking product access', 
-            error: error.message 
+        res.status(500).json({
+            message: 'Error revoking product access',
+            error: error.message
         });
     }
 });
