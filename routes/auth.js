@@ -224,5 +224,62 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
         res.status(500).json({ message: 'Error deleting user', error: error.message });
     }
 });
+// NEW ROUTE: Admin - Revoke product access from user
+router.delete('/admin/users/:userId/products/:productId', isAdmin, async (req, res) => {
+    const { userId, productId } = req.params;
+
+    try {
+        // Fetch the user and the product
+        const user = await User.findById(userId).populate('products');
+        const product = await Product.findById(productId).populate('userAccess.userId', 'name email');
+        
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        // Check if the user has access to the product
+        const userHasAccess = product.userAccess.some(access => access.userId.toString() === userId);
+
+        if (!userHasAccess) {
+            return res.status(400).json({ message: 'User does not have access to this product' });
+        }
+
+        // Remove the product from the user's products array
+        user.products = user.products.filter(product => 
+            product._id.toString() !== productId
+        );
+        await user.save();
+
+        // Remove the user from the product's userAccess array
+        product.userAccess = product.userAccess.filter(access => 
+            access.userId.toString() !== userId
+        );
+        await product.save();
+
+        res.json({ 
+            message: 'Product access revoked successfully',
+            userId: user._id,
+            productId: product._id,
+            updatedUser: {
+                _id: user._id,
+                products: user.products
+            },
+            updatedProduct: {
+                _id: product._id,
+                userAccess: product.userAccess
+            }
+        });
+    } catch (error) {
+        console.error('Error revoking product access:', error);
+        res.status(500).json({ 
+            message: 'Error revoking product access', 
+            error: error.message 
+        });
+    }
+});
 
 module.exports = router;
