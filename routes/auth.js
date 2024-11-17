@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/users');
-const Product = require('../models/products'); // Add this import
+const Product = require('../models/Product'); // Add this import
 const router = express.Router();
 
 // Middleware to check if user is admin
