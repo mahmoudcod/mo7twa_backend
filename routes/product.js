@@ -237,6 +237,52 @@ router.delete('/:id', getProduct, async (req, res) => {
     }
 });
 
+// Remove user access from a product
+router.delete('/:id/remove-access/:userId', getProduct, async (req, res) => {
+    const userId = req.params.userId;
+
+    try {
+        // Check if user exists
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Check if user has access to the product
+        const existingAccess = res.product.userAccess.find(
+            access => access.userId.toString() === userId
+        );
+
+        if (!existingAccess) {
+            return res.status(400).json({ message: 'User does not have access to this product' });
+        }
+
+        // Remove access from product
+        res.product.userAccess = res.product.userAccess.filter(
+            access => access.userId.toString() !== userId
+        );
+
+        // Remove product from user's products array
+        await User.findByIdAndUpdate(userId, {
+            $pull: { products: res.product._id }
+        });
+
+        // Save the updated product
+        await res.product.save();
+
+        const updatedProduct = await Product.findById(res.product._id)
+            .populate('userAccess.userId', 'name email');
+
+        res.json({
+            message: 'Access removed successfully',
+            product: updatedProduct
+        });
+    } catch (err) {
+        console.error("Error in remove-access:", err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 async function getProduct(req, res, next) {
     try {
         const product = await Product.findById(req.params.id);
