@@ -224,5 +224,42 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
         res.status(500).json({ message: 'Error deleting user', error: error.message });
     }
 });
+// NEW ROUTE: Admin - Revoke product access from user
+router.delete('/admin/users/:userId/products/:productId', isAdmin, async (req, res) => {
+    const { userId, productId } = req.params;
 
+    try {
+        const user = await User.findById(userId).populate('products');
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        // Remove the product from user's products array
+        const userProductIndex = user.products.findIndex(
+            product => product._id.toString() === productId
+        );
+
+        if (userProductIndex === -1) {
+            return res.status(404).json({ message: 'Product not found for this user' });
+        }
+
+        // Remove the product from the user's products array
+        user.products = user.products.filter(product => 
+            product._id.toString() !== productId
+        );
+        
+        await user.save();
+
+        res.json({ 
+            message: 'Product access revoked successfully',
+            userId: user._id,
+            productId: productId
+        });
+    } catch (error) {
+        res.status(500).json({ 
+            message: 'Error revoking product access', 
+            error: error.message 
+        });
+    }
+});
 module.exports = router;
