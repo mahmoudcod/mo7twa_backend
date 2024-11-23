@@ -36,7 +36,18 @@ const pageSchema = new mongoose.Schema({
     },
     image: {
         type: String
+    },
+    // Adding publish status
+    status: {
+        type: String,
+        enum: ['draft', 'published'],
+        default: 'draft'
     }
-}, { timestamps: true });
+}, { 
+    timestamps: true 
+});
+
+// Add an index for the name to help with the cloning functionality
+pageSchema.index({ name: 1 }, { unique: false });
 
 module.exports = mongoose.model('Page', pageSchema);

@@ -99,8 +99,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         res.status(500).json({ message: 'Error creating page', error: error.message });
     }
 });
-
-// Clone Page
+// clone page
 router.post('/:id/clone', authenticateUser, async (req, res) => {
     try {
         const { id } = req.params;
@@ -112,11 +111,11 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
             return res.status(404).json({ message: 'Page to clone not found' });
         }
 
-        // Generate a unique name with incremental suffix
-        const baseName = originalPage.name;
+        // Generate a base name for cloning
+        const baseName = originalPage.name.replace(/ c\d+$/, ''); // Remove any existing clone suffix
         const regex = new RegExp(`^${baseName} c(\\d+)$`); // Match names like 'PageName c<number>'
         const allPages = await Page.find({ name: { $regex: regex } });
-        
+
         // Determine the next suffix
         let maxSuffix = 0;
         allPages.forEach(page => {
@@ -125,6 +124,7 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
                 maxSuffix = Math.max(maxSuffix, parseInt(match[1]));
             }
         });
+
         const nextSuffix = maxSuffix + 1;
         const newName = `${baseName} c${nextSuffix}`;
 
@@ -135,7 +135,8 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
             category: originalPage.category.map(cat => cat._id), // Keep the same categories
             userInstructions: originalPage.userInstructions,
             image: originalPage.image, // Use the same image
-            user: req.user._id // Associate with the user performing the clone
+            user: req.user._id, // Associate with the user performing the clone
+            status: originalPage.status // Preserve publish/draft status
         });
 
         await clonedPage.save();
@@ -153,6 +154,7 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
         res.status(500).json({ message: 'Error cloning page', error: error.message });
     }
 });
+
 
 
 
@@ -329,6 +331,53 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
     } catch (error) {
         console.error('Server error:', error);
         res.status(500).json({ message: 'Error updating page', error: error.message });
+    }
+});
+// Update status (publish/draft)
+router.put('/:id/status', authenticateUser, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        if (!['published', 'draft'].includes(status)) {
+            return res.status(400).json({ message: 'Invalid status. Must be "published" or "draft".' });
+        }
+
+        const page = await Page.findById(id);
+
+        if (!page) {
+            return res.status(404).json({ message: 'Page not found' });
+        }
+
+        // Ensure only the user who owns the page or an admin can update the status
+        if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+            return res.status(403).json({ message: 'Access denied' });
+        }
+
+        page.status = status;
+        await page.save();
+
+        res.status(200).json({ message: `Page status updated to ${status}`, page });
+    } catch (error) {
+        console.error('Server error:', error);
+        res.status(500).json({ message: 'Error updating page status', error: error.message });
+    }
+});
+// Get Pages by Status
+router.get('/status/:status', authenticateUser, async (req, res) => {
+    try {
+        const { status } = req.params;
+
+        if (!['published', 'draft'].includes(status)) {
+            return res.status(400).json({ message: 'Invalid status. Must be "published" or "draft".' });
+        }
+
+        const pages = await Page.find({ status }).populate('category').populate('user', 'email');
+
+        res.status(200).json({ pages });
+    } catch (error) {
+        console.error('Server error:', error);
+        res.status(500).json({ message: 'Error fetching pages', error: error.message });
     }
 });
 
