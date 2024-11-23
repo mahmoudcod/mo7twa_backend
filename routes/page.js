@@ -270,7 +270,7 @@ router.get('/:id', authenticateUser, async (req, res) => {
 router.put('/:id', authenticateUser, upload.single('image'), async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, description, category, instructions } = req.body;
+        const { name, description, category, instructions,status } = req.body;
 
         let page = await Page.findById(id).populate('category');  // Make sure to populate category for proper comparison
 
@@ -323,6 +323,8 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
         page.description = description;
         page.userInstructions = instructions;
         page.image = imageUrl;
+         page.status = status || 'draft' // Add status field with draft as fallback
+
 
         // Save the updated page
         await page.save();
