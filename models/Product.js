@@ -5,6 +5,11 @@ const productSchema = new mongoose.Schema({
         type: String,
         required: true
     },
+    description: {
+        type: String,
+        required: true,
+        trim: true
+    },
     promptLimit: {
         type: Number,
         required: true

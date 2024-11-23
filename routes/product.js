@@ -11,7 +11,6 @@ router.get('/', async (req, res) => {
         const pageNum = Number(page);
         const limitNum = Number(limit);
 
-        // Build query filter
         const filter = {};
         if (category) {
             filter.category = { $in: Array.isArray(category) ? category : [category] };
@@ -42,6 +41,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
     const product = new Product({
         name: req.body.name,
+        description: req.body.description,
         promptLimit: req.body.promptLimit,
         accessPeriodDays: req.body.accessPeriodDays,
         pages: req.body.pages,
@@ -52,6 +52,53 @@ router.post('/', async (req, res) => {
     try {
         const newProduct = await product.save();
         res.status(201).json(newProduct);
+    } catch (err) {
+        res.status(400).json({ message: err.message });
+    }
+});
+
+// Update a product
+router.patch('/:id', getProduct, async (req, res) => {
+    try {
+        if (req.body.name != null) {
+            res.product.name = req.body.name;
+        }
+        if (req.body.description != null) {
+            res.product.description = req.body.description;
+        }
+        if (req.body.promptLimit != null) {
+            res.product.promptLimit = req.body.promptLimit;
+        }
+        if (req.body.accessPeriodDays != null) {
+            res.product.accessPeriodDays = req.body.accessPeriodDays;
+        }
+        if (req.body.pages != null) {
+            res.product.pages = req.body.pages;
+        }
+        if (req.body.category != null) {
+            res.product.category = Array.isArray(req.body.category)
+                ? req.body.category
+                : [req.body.category];
+        }
+
+        if (req.body.addCategories) {
+            const categoriesToAdd = Array.isArray(req.body.addCategories)
+                ? req.body.addCategories
+                : [req.body.addCategories];
+            res.product.category = [...new Set([...res.product.category, ...categoriesToAdd])];
+        }
+
+        if (req.body.removeCategories) {
+            const categoriesToRemove = Array.isArray(req.body.removeCategories)
+                ? req.body.removeCategories
+                : [req.body.removeCategories];
+            res.product.category = res.product.category.filter(
+                cat => !categoriesToRemove.includes(cat)
+            );
+        }
+
+        const updatedProduct = await res.product.save();
+        res.json(updatedProduct);
     } catch (err) {
         res.status(400).json({ message: err.message });
     }
@@ -84,53 +131,6 @@ router.get('/:id', getProduct, async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-
-// Update a product
-router.patch('/:id', getProduct, async (req, res) => {
-    try {
-        if (req.body.name != null) {
-            res.product.name = req.body.name;
-        }
-        if (req.body.promptLimit != null) {
-            res.product.promptLimit = req.body.promptLimit;
-        }
-        if (req.body.accessPeriodDays != null) {
-            res.product.accessPeriodDays = req.body.accessPeriodDays;
-        }
-        if (req.body.pages != null) {
-            res.product.pages = req.body.pages;
-        }
-        if (req.body.category != null) {
-            // Ensure category is always an array
-            res.product.category = Array.isArray(req.body.category)
-                ? req.body.category
-                : [req.body.category];
-        }
-
-        // Handle category operations if provided
-        if (req.body.addCategories) {
-            const categoriesToAdd = Array.isArray(req.body.addCategories)
-                ? req.body.addCategories
-                : [req.body.addCategories];
-            res.product.category = [...new Set([...res.product.category, ...categoriesToAdd])];
-        }
-
-        if (req.body.removeCategories) {
-            const categoriesToRemove = Array.isArray(req.body.removeCategories)
-                ? req.body.removeCategories
-                : [req.body.removeCategories];
-            res.product.category = res.product.category.filter(
-                cat => !categoriesToRemove.includes(cat)
-            );
-        }
-
-        const updatedProduct = await res.product.save();
-        res.json(updatedProduct);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
-    }
-});
-
 // Grant user access to a product
 router.post('/:id/grant-access', getProduct, async (req, res) => {
     const userId = req.body.userId;
