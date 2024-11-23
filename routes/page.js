@@ -59,10 +59,10 @@ async function extractTextFromFile(file) {
     return text;
 }
 
-// Create page
+// Update the page creation route in the backend
 router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
-        const { name, description, category, instructions } = req.body;
+        const { name, description, category, instructions, status } = req.body; // Add status to destructuring
 
         let imageUrl = null;
         if (req.file) {
@@ -84,7 +84,8 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
             category: validCategories.map(cat => cat._id),
             userInstructions: instructions,
             image: imageUrl,
-            user: req.user._id
+            user: req.user._id,
+            status: status || 'draft' // Add status field with draft as fallback
         });
         await page.save();
 
