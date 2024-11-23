@@ -99,7 +99,6 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         res.status(500).json({ message: 'Error creating page', error: error.message });
     }
 });
-
 // Clone Page
 router.post('/:id/clone', authenticateUser, async (req, res) => {
     try {
@@ -112,9 +111,25 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
             return res.status(404).json({ message: 'Page to clone not found' });
         }
 
+        // Generate a unique name with incremental suffix
+        const baseName = originalPage.name;
+        const regex = new RegExp(`^${baseName} c(\\d+)$`); // Match names like 'PageName c<number>'
+        const allPages = await Page.find({ name: { $regex: regex } });
+        
+        // Determine the next suffix
+        let maxSuffix = 0;
+        allPages.forEach(page => {
+            const match = page.name.match(regex);
+            if (match && match[1]) {
+                maxSuffix = Math.max(maxSuffix, parseInt(match[1]));
+            }
+        });
+        const nextSuffix = maxSuffix + 1;
+        const newName = `${baseName} c${nextSuffix}`;
+
         // Create a cloned page
         const clonedPage = new Page({
-            name: `${originalPage.name} (Copy)`, // Modify the name to indicate it's a copy
+            name: newName,
             description: originalPage.description,
             category: originalPage.category.map(cat => cat._id), // Keep the same categories
             userInstructions: originalPage.userInstructions,
@@ -137,6 +152,8 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
         res.status(500).json({ message: 'Error cloning page', error: error.message });
     }
 });
+
+
 
 // Generate AI response for user input and optional file
 router.post('/generate', authenticateUser, upload.single('file'), async (req, res) => {
