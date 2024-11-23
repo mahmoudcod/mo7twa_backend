@@ -99,6 +99,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         res.status(500).json({ message: 'Error creating page', error: error.message });
     }
 });
+
 // Clone Page
 router.post('/:id/clone', authenticateUser, async (req, res) => {
     try {
