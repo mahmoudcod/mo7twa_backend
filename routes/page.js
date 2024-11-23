@@ -333,54 +333,168 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
         res.status(500).json({ message: 'Error updating page', error: error.message });
     }
 });
-// Update status (publish/draft)
+// Update page status (publish/draft)
 router.put('/:id/status', authenticateUser, async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
 
-        if (!['published', 'draft'].includes(status)) {
-            return res.status(400).json({ message: 'Invalid status. Must be "published" or "draft".' });
+        // Validate status input
+        if (!status) {
+            return res.status(400).json({ 
+                message: 'Status is required',
+                validStatuses: ['published', 'draft']
+            });
         }
 
-        const page = await Page.findById(id);
+        const normalizedStatus = status.toLowerCase();
+        if (!['published', 'draft'].includes(normalizedStatus)) {
+            return res.status(400).json({ 
+                message: 'Invalid status. Must be "published" or "draft"'
+            });
+        }
+
+        // Find and validate page
+        const page = await Page.findById(id)
+            .populate('category')
+            .populate('user', 'email');
 
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
         }
 
-        // Ensure only the user who owns the page or an admin can update the status
-        if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
+        // Check authorization
+        if (page.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied' });
         }
 
-        page.status = status;
+        // Validate status transition
+        if (!Page.validateStatusTransition(page.status, normalizedStatus)) {
+            return res.status(400).json({ 
+                message: `Invalid status transition from ${page.status} to ${normalizedStatus}`
+            });
+        }
+
+        // Additional validation for publishing
+        if (normalizedStatus === 'published' && !page.isPublishable()) {
+            return res.status(400).json({
+                message: 'Cannot publish page: missing required fields'
+            });
+        }
+
+        // Update status
+        page.status = normalizedStatus;
+        page.lastModifiedBy = req.user._id;
         await page.save();
 
-        res.status(200).json({ message: `Page status updated to ${status}`, page });
+        res.status(200).json({
+            message: `Page status updated to ${normalizedStatus}`,
+            page: {
+                id: page._id,
+                name: page.name,
+                status: page.status,
+                statusUpdatedAt: page.statusUpdatedAt,
+                lastModifiedBy: page.lastModifiedBy
+            }
+        });
+
     } catch (error) {
-        console.error('Server error:', error);
-        res.status(500).json({ message: 'Error updating page status', error: error.message });
+        console.error('Status update error:', error);
+        res.status(500).json({ 
+            message: 'Error updating page status',
+            error: error.message 
+        });
     }
 });
-// Get Pages by Status
+
+// Get pages by status
 router.get('/status/:status', authenticateUser, async (req, res) => {
     try {
         const { status } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const sort = req.query.sort || '-updatedAt';
 
-        if (!['published', 'draft'].includes(status)) {
-            return res.status(400).json({ message: 'Invalid status. Must be "published" or "draft".' });
+        // Validate status
+        if (!['published', 'draft'].includes(status.toLowerCase())) {
+            return res.status(400).json({ 
+                message: 'Invalid status. Must be "published" or "draft"'
+            });
         }
 
-        const pages = await Page.find({ status }).populate('category').populate('user', 'email');
+        // Build query
+        const query = { status: status.toLowerCase() };
+        
+        // Add user filter for non-admin users
+        if (!req.user.isAdmin) {
+            query.user = req.user._id;
+        }
 
-        res.status(200).json({ pages });
+        // Execute paginated query
+        const pages = await Page.find(query)
+            .populate('category')
+            .populate('user', 'email')
+            .sort(sort)
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .lean();
+
+        // Get total count for pagination
+        const totalCount = await Page.countDocuments(query);
+
+        res.status(200).json({
+            pages,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalCount / limit),
+                totalItems: totalCount,
+                itemsPerPage: limit
+            }
+        });
+
     } catch (error) {
-        console.error('Server error:', error);
-        res.status(500).json({ message: 'Error fetching pages', error: error.message });
+        console.error('Status retrieval error:', error);
+        res.status(500).json({ 
+            message: 'Error fetching pages',
+            error: error.message 
+        });
     }
 });
 
+// Get published pages (public route, no auth required)
+router.get('/published', async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+
+        const pages = await Page.find({ status: 'published' })
+            .populate('category')
+            .populate('user', 'email')
+            .sort('-updatedAt')
+            .skip((page - 1) * limit)
+            .limit(limit)
+            .lean();
+
+        const totalCount = await Page.countDocuments({ status: 'published' });
+
+        res.status(200).json({
+            pages,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalCount / limit),
+                totalItems: totalCount,
+                itemsPerPage: limit
+            }
+        });
+
+    } catch (error) {
+        console.error('Published pages retrieval error:', error);
+        res.status(500).json({ 
+            message: 'Error fetching published pages',
+            error: error.message 
+        });
+    }
+});
 
 // Delete Page
 router.delete('/:id', authenticateUser, async (req, res) => {
