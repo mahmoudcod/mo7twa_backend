@@ -1,7 +1,8 @@
 const express = require('express');
 const Page = require('../models/page');
 const User = require('../models/users');
-const Category = require('../models/category'); // Assuming you have a Category model
+const Category = require('../models/category');
+const Product = require('../models/Product'); // Add Product model
 const router = express.Router();
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
@@ -12,9 +13,6 @@ const pdf = require('pdf-parse');
 const mammoth = require('mammoth');
 const axios = require('axios');
 const cloudinary = require('cloudinary').v2;
-
-
-
 
 // Middleware to authenticate user
 const authenticateUser = async (req, res, next) => {
@@ -31,6 +29,34 @@ const authenticateUser = async (req, res, next) => {
         next();
     } catch (error) {
         res.status(401).send({ error: 'Please authenticate.' });
+    }
+};
+
+// Middleware to check product access for AI generation
+const checkProductAccessForAI = async (req, res, next) => {
+    try {
+        const productId = req.body.productId;
+        if (!productId) {
+            return res.status(400).json({ message: 'Product ID is required' });
+        }
+
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        const userId = req.user._id;
+        const accessCheck = await product.checkAndUpdateUsage(userId);
+        
+        if (!accessCheck.allowed) {
+            return res.status(403).json({ message: accessCheck.message });
+        }
+
+        req.product = product;
+        req.remainingUsage = accessCheck.remainingUsage;
+        next();
+    } catch (err) {
+        res.status(500).json({ message: err.message });
     }
 };
 
@@ -100,6 +126,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
         res.status(500).json({ message: 'Error creating page', error: error.message });
     }
 });
+
 // clone page
 router.post('/:id/clone', authenticateUser, async (req, res) => {
     try {
@@ -156,11 +183,8 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
     }
 });
 
-
-
-
 // Generate AI response for user input and optional file
-router.post('/generate', authenticateUser, upload.single('file'), async (req, res) => {
+router.post('/generate', authenticateUser, checkProductAccessForAI, upload.single('file'), async (req, res) => {
     try {
         let userInput = req.body.userInput || '';
 
@@ -178,34 +202,39 @@ router.post('/generate', authenticateUser, upload.single('file'), async (req, re
 
         // Send request to OpenAI API
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
-            model: "gpt-4o-mini-2024-07-18", // Specify your model
+            model: "gpt-4o-mini-2024-07-18",
             messages: [
                 { role: "system", content: instructions || "You are a helpful assistant." },
                 { role: "user", content: userInput }
             ]
         }, {
             headers: {
-                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`, // Pass OpenAI API key
+                'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
                 'Content-Type': 'application/json'
             }
         });
 
         const aiOutput = response.data.choices[0].message.content;
 
-        // Save AI interaction
+        // Save AI interaction with product usage info
         const aiInteraction = {
             user: req.user._id,
             userInput,
-            aiOutput
+            aiOutput,
+            product: req.product._id,
+            remainingUsage: req.remainingUsage
         };
 
-        // Save interaction in User model
-        await User.findByIdAndUpdate(req.user._id, { $push: { aiInteractions: aiInteraction } });
-
-        res.status(200).json({ userInput, aiOutput });
+        res.json({
+            output: aiOutput,
+            remainingUsage: req.remainingUsage
+        });
     } catch (error) {
-        console.error('Server error:', error);
-        res.status(500).json({ message: 'Error processing AI request', error: error.message });
+        console.error('Error generating AI response:', error);
+        res.status(500).json({ 
+            message: 'Error generating AI response', 
+            error: error.message 
+        });
     }
 });
 
@@ -266,6 +295,7 @@ router.get('/:id', authenticateUser, async (req, res) => {
         res.status(500).json({ message: 'Error fetching page', error: error.message });
     }
 });
+
 // Update Page
 router.put('/:id', authenticateUser, upload.single('image'), async (req, res) => {
     try {
@@ -336,6 +366,7 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
         res.status(500).json({ message: 'Error updating page', error: error.message });
     }
 });
+
 // Update page status (publish/draft)
 router.put('/:id/status', authenticateUser, async (req, res) => {
     try {
@@ -524,6 +555,5 @@ router.delete('/:id', authenticateUser, async (req, res) => {
         res.status(500).json({ message: 'Error deleting page', error: error.message });
     }
 });
-
 
 module.exports = router;

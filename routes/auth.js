@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/users');
-const Product = require('../models/Product'); // Add this import
+const Product = require('../models/Product');
 const router = express.Router();
 
 // Middleware to check if user is admin
@@ -268,6 +268,155 @@ router.delete('/admin/users/:userId/products/:productId', isAdmin, async (req, r
             message: 'Error revoking product access',
             error: error.message
         });
+    }
+});
+
+// Grant product access to user
+router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { productId, accessPeriodDays } = req.body;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        // Calculate access period
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + (accessPeriodDays || product.accessPeriodDays));
+
+        // Check if user already has access to this product
+        const existingAccess = user.productAccess.find(
+            access => access.productId.toString() === productId.toString()
+        );
+
+        if (existingAccess) {
+            // Update existing access
+            existingAccess.startDate = startDate;
+            existingAccess.endDate = endDate;
+            existingAccess.usageCount = 0;
+            existingAccess.isActive = true;
+        } else {
+            // Grant new access
+            user.productAccess.push({
+                productId,
+                startDate,
+                endDate,
+                usageCount: 0,
+                isActive: true
+            });
+        }
+
+        await user.save();
+
+        res.json({
+            message: 'Product access granted successfully',
+            access: {
+                productId,
+                startDate,
+                endDate,
+                accessPeriodDays: accessPeriodDays || product.accessPeriodDays
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ message: 'Error granting product access', error: error.message });
+    }
+});
+
+// Revoke product access
+router.post('/admin/users/:userId/revoke-product-access', isAdmin, async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { productId } = req.body;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const access = user.productAccess.find(
+            access => access.productId.toString() === productId.toString()
+        );
+
+        if (!access) {
+            return res.status(404).json({ message: 'Product access not found' });
+        }
+
+        access.isActive = false;
+        await user.save();
+
+        res.json({ message: 'Product access revoked successfully' });
+    } catch (error) {
+        res.status(500).json({ message: 'Error revoking product access', error: error.message });
+    }
+});
+
+// Get user's product access
+router.get('/users/me/product-access', async (req, res) => {
+    try {
+        const token = req.header('Authorization').replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id)
+            .populate('productAccess.productId', 'name description promptLimit');
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const activeAccess = user.productAccess.filter(access => access.isActive);
+        const now = new Date();
+
+        const accessDetails = activeAccess.map(access => ({
+            product: access.productId,
+            startDate: access.startDate,
+            endDate: access.endDate,
+            usageCount: access.usageCount,
+            remainingUsage: access.productId.promptLimit - access.usageCount,
+            isExpired: access.endDate < now,
+            lastUsed: access.lastUsed
+        }));
+
+        res.json({
+            productAccess: accessDetails
+        });
+    } catch (error) {
+        res.status(401).json({ message: 'Please authenticate.' });
+    }
+});
+
+// Get user's AI usage history
+router.get('/users/me/ai-usage', async (req, res) => {
+    try {
+        const token = req.header('Authorization').replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findById(decoded.id)
+            .populate('aiUsageHistory.productId', 'name');
+
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const usageHistory = user.aiUsageHistory.map(usage => ({
+            product: usage.productId,
+            pageName: usage.pageName,
+            category: usage.category,
+            timestamp: usage.timestamp,
+            prompt: usage.prompt
+        }));
+
+        res.json({
+            usageHistory,
+            totalUsage: usageHistory.length
+        });
+    } catch (error) {
+        res.status(401).json({ message: 'Please authenticate.' });
     }
 });
 
