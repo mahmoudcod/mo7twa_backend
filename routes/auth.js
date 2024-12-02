@@ -331,69 +331,71 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
 });
 
 // Revoke product access
-router.post('/admin/users/:userId/revoke-product-access', isAdmin, async (req, res) => {
+router.delete('/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
     try {
-        const { userId } = req.params;
-        const { productId } = req.body;
+        const { userId, productId } = req.params;
 
         const user = await User.findById(userId);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Remove the product access completely from the array
+        // Check if user has this product access
+        const hasAccess = user.productAccess.some(
+            access => access.productId.toString() === productId.toString()
+        );
+
+        if (!hasAccess) {
+            return res.status(404).json({ message: 'Product access not found for this user' });
+        }
+
+        // Remove the product access from the array
         user.productAccess = user.productAccess.filter(
             access => access.productId.toString() !== productId.toString()
         );
 
-        // Also remove from products array if it exists
-        if (user.products) {
-            user.products = user.products.filter(
-                pid => pid.toString() !== productId.toString()
-            );
-        }
-
         await user.save();
 
         res.json({ 
-            message: 'Product access revoked successfully',
+            success: true,
+            message: 'Product access removed successfully',
             remainingAccess: user.productAccess.length
         });
     } catch (error) {
-        res.status(500).json({ message: 'Error revoking product access', error: error.message });
+        console.error('Error revoking product access:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Error revoking product access', 
+            error: error.message 
+        });
     }
 });
 
 // Get user's product access
-router.get('/users/me/product-access', async (req, res) => {
+router.get('/users/:userId/product-access', async (req, res) => {
     try {
-        const token = req.header('Authorization').replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id)
-            .populate('productAccess.productId', 'name description promptLimit');
-
+        const { userId } = req.params;
+        
+        const user = await User.findById(userId)
+            .populate('productAccess.productId', 'name description');
+            
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const activeAccess = user.productAccess.filter(access => access.isActive);
-        const now = new Date();
-
-        const accessDetails = activeAccess.map(access => ({
-            product: access.productId,
-            startDate: access.startDate,
-            endDate: access.endDate,
-            usageCount: access.usageCount,
-            remainingUsage: access.productId.promptLimit - access.usageCount,
-            isExpired: access.endDate < now,
-            lastUsed: access.lastUsed
-        }));
-
+        const accessDetails = await user.getProductsWithAccessDetails();
+        
         res.json({
+            success: true,
             productAccess: accessDetails
         });
     } catch (error) {
-        res.status(401).json({ message: 'Please authenticate.' });
+        console.error('Error getting product access:', error);
+        res.status(500).json({ 
+            success: false,
+            message: 'Error getting product access',
+            error: error.message 
+        });
     }
 });
 
