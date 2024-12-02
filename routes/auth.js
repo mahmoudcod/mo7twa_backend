@@ -284,54 +284,80 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
         res.status(500).json({ message: 'Error granting product access', error: error.message });
     }
 });
+
 const { ObjectId } = require('mongoose').Types;
 
+// Remove product access from user
 router.delete('/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
     try {
         const { userId, productId } = req.params;
 
-        // Validate product ID
-        try {
-            new ObjectId(productId);
-        } catch (error) {
-            return res.status(400).json({ message: 'Invalid product ID' });
+        // Validate user ID
+        if (!ObjectId.isValid(userId)) {
+            return res.status(400).json({ success: false, message: 'Invalid user ID format' });
         }
 
+        // Validate product ID
+        if (!ObjectId.isValid(productId)) {
+            return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+        }
+
+        // First check if user exists
         const user = await User.findById(userId);
         if (!user) {
-            return res.status(404).json({ message: 'User not found' });
+            return res.status(404).json({ success: false, message: 'User not found' });
         }
 
-        // Check if user has this product access
+        // Check if the product access exists before attempting removal
         const hasAccess = user.productAccess.some(
-            access => access.productId.toString() === productId.toString()
+            access => access.productId.toString() === productId
         );
 
         if (!hasAccess) {
-            return res.status(404).json({ message: 'Product access not found for this user' });
+            return res.status(404).json({ 
+                success: false, 
+                message: 'Product access not found for this user'
+            });
         }
 
-        // Use updateOne with $pull to remove the access
-        await User.updateOne(
-            { _id: userId },
-            { $pull: { productAccess: { productId: new ObjectId(productId) } } }
+        // Use atomic operation to remove the product access
+        const result = await User.updateOne(
+            { _id: new ObjectId(userId) },
+            { 
+                $pull: { 
+                    productAccess: { 
+                        productId: new ObjectId(productId) 
+                    } 
+                }
+            }
         );
 
+        if (result.modifiedCount === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Failed to remove product access'
+            });
+        }
+
+        // Get updated user to return correct remaining access count
         const updatedUser = await User.findById(userId);
+
         res.json({ 
             success: true,
             message: 'Product access removed successfully',
             remainingAccess: updatedUser.productAccess.length
         });
+
     } catch (error) {
-        console.error('Error revoking product access:', error);
+        console.error('Error removing product access:', error);
         res.status(500).json({ 
             success: false,
-            message: 'Error revoking product access', 
+            message: 'Error removing product access',
             error: error.message 
         });
     }
 });
+
 // Get user's product access
 router.get('/users/:userId/product-access', async (req, res) => {
     try {
