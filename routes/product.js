@@ -3,6 +3,29 @@ const router = express.Router();
 const Product = require('../models/Product');
 const User = require('../models/users');
 
+// Middleware to check product access
+const checkProductAccess = async (req, res, next) => {
+    try {
+        const product = await Product.findById(req.params.productId);
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        const userId = req.user._id; // Assuming you have authentication middleware
+        const accessCheck = await product.checkAndUpdateUsage(userId);
+        
+        if (!accessCheck.allowed) {
+            return res.status(403).json({ message: accessCheck.message });
+        }
+
+        req.product = product;
+        req.remainingUsage = accessCheck.remainingUsage;
+        next();
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+};
+
 // Get all products with pagination
 router.get('/', async (req, res) => {
     try {
@@ -58,25 +81,25 @@ router.post('/', async (req, res) => {
 });
 
 // Update a product
-router.patch('/:id', getProduct, async (req, res) => {
+router.patch('/:id', checkProductAccess, async (req, res) => {
     try {
         if (req.body.name != null) {
-            res.product.name = req.body.name;
+            req.product.name = req.body.name;
         }
         if (req.body.description != null) {
-            res.product.description = req.body.description;
+            req.product.description = req.body.description;
         }
         if (req.body.promptLimit != null) {
-            res.product.promptLimit = req.body.promptLimit;
+            req.product.promptLimit = req.body.promptLimit;
         }
         if (req.body.accessPeriodDays != null) {
-            res.product.accessPeriodDays = req.body.accessPeriodDays;
+            req.product.accessPeriodDays = req.body.accessPeriodDays;
         }
         if (req.body.pages != null) {
-            res.product.pages = req.body.pages;
+            req.product.pages = req.body.pages;
         }
         if (req.body.category != null) {
-            res.product.category = Array.isArray(req.body.category)
+            req.product.category = Array.isArray(req.body.category)
                 ? req.body.category
                 : [req.body.category];
         }
@@ -85,19 +108,19 @@ router.patch('/:id', getProduct, async (req, res) => {
             const categoriesToAdd = Array.isArray(req.body.addCategories)
                 ? req.body.addCategories
                 : [req.body.addCategories];
-            res.product.category = [...new Set([...res.product.category, ...categoriesToAdd])];
+            req.product.category = [...new Set([...req.product.category, ...categoriesToAdd])];
         }
 
         if (req.body.removeCategories) {
             const categoriesToRemove = Array.isArray(req.body.removeCategories)
                 ? req.body.removeCategories
                 : [req.body.removeCategories];
-            res.product.category = res.product.category.filter(
+            req.product.category = req.product.category.filter(
                 cat => !categoriesToRemove.includes(cat)
             );
         }
 
-        const updatedProduct = await res.product.save();
+        const updatedProduct = await req.product.save();
         res.json(updatedProduct);
     } catch (err) {
         res.status(400).json({ message: err.message });
@@ -105,7 +128,7 @@ router.patch('/:id', getProduct, async (req, res) => {
 });
 
 // Get a specific product
-router.get('/:id', getProduct, async (req, res) => {
+router.get('/:id', checkProductAccess, async (req, res) => {
     try {
         const product = await Product.findById(req.params.id)
             .populate('userAccess.userId', 'name email');
@@ -131,63 +154,78 @@ router.get('/:id', getProduct, async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-// Grant user access to a product
-router.post('/:id/grant-access', getProduct, async (req, res) => {
+
+// Grant access to a user
+router.post('/:id/grant-access', checkProductAccess, async (req, res) => {
     const userId = req.body.userId;
+    const accessPeriodDays = req.body.accessPeriodDays || req.product.accessPeriodDays;
 
     try {
-        const user = await User.findById(userId).populate('products');
+        const user = await User.findById(userId);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const existingAccess = res.product.userAccess.find(
-            access => access.userId.toString() === userId
+        // Calculate access period
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(endDate.getDate() + accessPeriodDays);
+
+        // Check if user already has access
+        const existingAccess = req.product.userAccess.find(
+            access => access.userId.toString() === userId.toString()
         );
 
         if (existingAccess) {
-            return res.status(400).json({ message: 'User already has access to this product' });
-        }
-
-        const startDate = new Date();
-        const endDate = new Date();
-        endDate.setDate(endDate.getDate() + res.product.accessPeriodDays);
-
-        res.product.userAccess.push({
-            userId: userId,
-            startDate: startDate,
-            endDate: endDate
-        });
-
-        if (!user.products.some(p => p._id.toString() === res.product._id.toString())) {
-            user.products.push(res.product._id);
-        }
-
-        await Promise.all([
-            res.product.save(),
-            user.save()
-        ]);
-
-        const updatedProduct = await Product.findById(res.product._id)
-            .populate('userAccess.userId', 'name email');
-
-        res.json({
-            message: 'Access granted successfully',
-            product: updatedProduct,
-            accessPeriod: {
+            existingAccess.startDate = startDate;
+            existingAccess.endDate = endDate;
+            existingAccess.usageCount = 0; // Reset usage count
+        } else {
+            req.product.userAccess.push({
+                userId,
                 startDate,
                 endDate,
-                daysRemaining: res.product.accessPeriodDays
+                usageCount: 0
+            });
+        }
+
+        await req.product.save();
+        res.json({ message: 'Access granted successfully', product: req.product });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// Get user's access status and usage for a product
+router.get('/:id/access-status', checkProductAccess, async (req, res) => {
+    try {
+        const userId = req.user._id; // Assuming you have authentication middleware
+        const userAccess = req.product.userAccess.find(
+            access => access.userId.toString() === userId.toString()
+        );
+
+        if (!userAccess) {
+            return res.status(403).json({ message: 'No access to this product' });
+        }
+
+        res.json({
+            productId: req.product._id,
+            productName: req.product.name,
+            accessStatus: {
+                startDate: userAccess.startDate,
+                endDate: userAccess.endDate,
+                usageCount: userAccess.usageCount,
+                remainingUsage: req.product.promptLimit - userAccess.usageCount,
+                lastUsed: userAccess.lastUsed
             }
         });
     } catch (err) {
-        console.error("Error in grant-access:", err);
         res.status(500).json({ message: err.message });
     }
 });
 
 // Check user's access status for a product
-router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
+router.get('/:id/check-access/:userId', checkProductAccess, async (req, res) => {
     try {
         const product = await Product.findById(req.params.id)
             .populate('userAccess.userId', 'name email');
@@ -223,14 +261,14 @@ router.get('/:id/check-access/:userId', getProduct, async (req, res) => {
 });
 
 // Delete a product
-router.delete('/:id', getProduct, async (req, res) => {
+router.delete('/:id', checkProductAccess, async (req, res) => {
     try {
         await User.updateMany(
-            { products: res.product._id },
-            { $pull: { products: res.product._id } }
+            { products: req.product._id },
+            { $pull: { products: req.product._id } }
         );
 
-        await res.product.deleteOne();
+        await req.product.deleteOne();
         res.json({ message: 'Product deleted successfully' });
     } catch (err) {
         res.status(500).json({ message: 'Error deleting product: ' + err.message });
@@ -238,7 +276,7 @@ router.delete('/:id', getProduct, async (req, res) => {
 });
 
 // Remove user access from a product
-router.delete('/:id/remove-access/:userId', getProduct, async (req, res) => {
+router.delete('/:id/remove-access/:userId', checkProductAccess, async (req, res) => {
     const userId = req.params.userId;
 
     try {
@@ -249,7 +287,7 @@ router.delete('/:id/remove-access/:userId', getProduct, async (req, res) => {
         }
 
         // Check if user has access to the product
-        const existingAccess = res.product.userAccess.find(
+        const existingAccess = req.product.userAccess.find(
             access => access.userId.toString() === userId
         );
 
@@ -258,19 +296,19 @@ router.delete('/:id/remove-access/:userId', getProduct, async (req, res) => {
         }
 
         // Remove access from product
-        res.product.userAccess = res.product.userAccess.filter(
+        req.product.userAccess = req.product.userAccess.filter(
             access => access.userId.toString() !== userId
         );
 
         // Remove product from user's products array
         await User.findByIdAndUpdate(userId, {
-            $pull: { products: res.product._id }
+            $pull: { products: req.product._id }
         });
 
         // Save the updated product
-        await res.product.save();
+        await req.product.save();
 
-        const updatedProduct = await Product.findById(res.product._id)
+        const updatedProduct = await Product.findById(req.product._id)
             .populate('userAccess.userId', 'name email');
 
         res.json({
@@ -282,18 +320,5 @@ router.delete('/:id/remove-access/:userId', getProduct, async (req, res) => {
         res.status(500).json({ message: err.message });
     }
 });
-
-async function getProduct(req, res, next) {
-    try {
-        const product = await Product.findById(req.params.id);
-        if (!product) {
-            return res.status(404).json({ message: 'Product not found' });
-        }
-        res.product = product;
-        next();
-    } catch (err) {
-        return res.status(500).json({ message: err.message });
-    }
-}
 
 module.exports = router;
