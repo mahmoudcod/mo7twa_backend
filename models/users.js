@@ -124,6 +124,31 @@ userSchema.methods.getProductAccess = function(productId) {
     );
 };
 
+// Method to get all products with access details
+userSchema.methods.getProductsWithAccessDetails = async function() {
+    // Populate the productAccess array with actual product details
+    const populatedAccess = await Promise.all(
+        this.productAccess.map(async (access) => {
+            // Find the full product details
+            const product = await mongoose.model('Product').findById(access.productId);
+            
+            return {
+                productId: access.productId,
+                productName: product ? product.name : 'Unknown Product',
+                startDate: access.startDate,
+                endDate: access.endDate,
+                usageCount: access.usageCount,
+                lastUsed: access.lastUsed,
+                isActive: access.isActive,
+                remainingUsage: product ? product.promptLimit - access.usageCount : 0,
+                isExpired: access.endDate < new Date()
+            };
+        })
+    );
+
+    return populatedAccess;
+};
+
 // Method to track AI usage
 userSchema.methods.trackAIUsage = async function(productId, pageName, category, prompt, response) {
     this.aiUsageHistory.push({
