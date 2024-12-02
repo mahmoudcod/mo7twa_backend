@@ -292,36 +292,16 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
         const endDate = new Date();
         endDate.setDate(endDate.getDate() + (accessPeriodDays || product.accessPeriodDays));
 
-        // Check if user already has access to this product
-        const existingAccess = user.productAccess.find(
-            access => access.productId.toString() === productId.toString()
-        );
-
-        if (existingAccess) {
-            // Update existing access
-            existingAccess.startDate = startDate;
-            existingAccess.endDate = endDate;
-            existingAccess.usageCount = 0;
-            existingAccess.isActive = true;
-        } else {
-            // Grant new access
-            user.productAccess.push({
-                productId,
-                startDate,
-                endDate,
-                usageCount: 0,
-                isActive: true
-            });
-        }
-
-        await user.save();
+        // Add or update product access
+        const access = await user.addProductAccess(productId, startDate, endDate);
 
         res.json({
             message: 'Product access granted successfully',
             access: {
-                productId,
-                startDate,
-                endDate,
+                productId: access.productId,
+                productName: access.productName,
+                startDate: access.startDate,
+                endDate: access.endDate,
                 accessPeriodDays: accessPeriodDays || product.accessPeriodDays
             }
         });
@@ -330,62 +310,19 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
     }
 });
 
-// Revoke product access
-router.post('/admin/users/:userId/revoke-product-access', isAdmin, async (req, res) => {
-    try {
-        const { userId } = req.params;
-        const { productId } = req.body;
-
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        const access = user.productAccess.find(
-            access => access.productId.toString() === productId.toString()
-        );
-
-        if (!access) {
-            return res.status(404).json({ message: 'Product access not found' });
-        }
-
-        access.isActive = false;
-        await user.save();
-
-        res.json({ message: 'Product access revoked successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Error revoking product access', error: error.message });
-    }
-});
-
 // Get user's product access
 router.get('/users/me/product-access', async (req, res) => {
     try {
         const token = req.header('Authorization').replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id)
-            .populate('productAccess.productId', 'name description promptLimit');
+        const user = await User.findById(decoded.id);
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const activeAccess = user.productAccess.filter(access => access.isActive);
-        const now = new Date();
-
-        const accessDetails = activeAccess.map(access => ({
-            product: access.productId,
-            startDate: access.startDate,
-            endDate: access.endDate,
-            usageCount: access.usageCount,
-            remainingUsage: access.productId.promptLimit - access.usageCount,
-            isExpired: access.endDate < now,
-            lastUsed: access.lastUsed
-        }));
-
-        res.json({
-            productAccess: accessDetails
-        });
+        const accessDetails = await user.getProductsWithAccessDetails();
+        res.json({ productAccess: accessDetails });
     } catch (error) {
         res.status(401).json({ message: 'Please authenticate.' });
     }
@@ -396,15 +333,17 @@ router.get('/users/me/ai-usage', async (req, res) => {
     try {
         const token = req.header('Authorization').replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findById(decoded.id)
-            .populate('aiUsageHistory.productId', 'name');
+        const user = await User.findById(decoded.id);
 
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
 
         const usageHistory = user.aiUsageHistory.map(usage => ({
-            product: usage.productId,
+            product: {
+                id: usage.productId,
+                name: usage.productName
+            },
             pageName: usage.pageName,
             category: usage.category,
             timestamp: usage.timestamp,
