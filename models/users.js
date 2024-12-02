@@ -137,42 +137,16 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
             // Find the full product details
             const product = await mongoose.model('Product').findById(access.productId);
             
-            if (!product) {
-                return {
-                    productId: access.productId,
-                    productName: 'Unknown Product',
-                    startDate: access.startDate,
-                    endDate: access.endDate,
-                    usageCount: access.usageCount,
-                    lastUsed: access.lastUsed,
-                    isActive: access.isActive,
-                    remainingUsage: 0,
-                    isExpired: access.endDate < new Date()
-                };
-            }
-
-            // Update productName if it's missing or different from current product name
-            if (!access.productName || access.productName !== product.name) {
-                access.productName = product.name;
-                await this.save(); // Save the updated name
-            }
-            
             return {
                 productId: access.productId,
-                productName: product.name,
+                productName: access.productName,
                 startDate: access.startDate,
                 endDate: access.endDate,
                 usageCount: access.usageCount,
                 lastUsed: access.lastUsed,
                 isActive: access.isActive,
-                remainingUsage: product.promptLimit - access.usageCount,
-                isExpired: access.endDate < new Date(),
-                product: {
-                    name: product.name,
-                    description: product.description,
-                    promptLimit: product.promptLimit,
-                    accessPeriodDays: product.accessPeriodDays
-                }
+                remainingUsage: product ? product.promptLimit - access.usageCount : 0,
+                isExpired: access.endDate < new Date()
             };
         })
     );
@@ -221,7 +195,6 @@ userSchema.methods.addProductAccess = async function(productId, startDate, endDa
         existingAccess.endDate = endDate;
         existingAccess.usageCount = 0;
         existingAccess.isActive = true;
-        existingAccess.lastUsed = new Date();
     } else {
         this.productAccess.push({
             productId,
@@ -229,8 +202,7 @@ userSchema.methods.addProductAccess = async function(productId, startDate, endDa
             startDate,
             endDate,
             usageCount: 0,
-            isActive: true,
-            lastUsed: new Date()
+            isActive: true
         });
     }
 
