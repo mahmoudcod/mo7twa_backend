@@ -226,51 +226,6 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
     }
 });
 
-// Revoke product access from user
-router.delete('/admin/users/:userId/products/:productId', isAdmin, async (req, res) => {
-    const { userId, productId } = req.params;
-
-    try {
-        // Fetch the user
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Fetch the product
-        const product = await Product.findById(productId);
-        if (!product) {
-            return res.status(404).json({ message: 'Product not found' });
-        }
-
-        // Remove the product from user's products array
-        const productIndex = user.products.indexOf(productId);
-        if (productIndex > -1) {
-            user.products.splice(productIndex, 1);
-        }
-        await user.save();
-
-        // Remove the user from product's userAccess array
-        product.userAccess = product.userAccess.filter(
-            access => access.userId.toString() !== userId
-        );
-        await product.save();
-
-        res.json({
-            message: 'Product access revoked successfully',
-            userId: user._id,
-            productId: product._id
-        });
-
-    } catch (error) {
-        console.error('Error revoking product access:', error);
-        res.status(500).json({
-            message: 'Error revoking product access',
-            error: error.message
-        });
-    }
-});
-
 // Grant product access to user
 router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, res) => {
     try {
@@ -329,11 +284,18 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
         res.status(500).json({ message: 'Error granting product access', error: error.message });
     }
 });
+const { ObjectId } = require('mongoose').Types;
 
-// Revoke product access
 router.delete('/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
     try {
         const { userId, productId } = req.params;
+
+        // Validate product ID
+        try {
+            new ObjectId(productId);
+        } catch (error) {
+            return res.status(400).json({ message: 'Invalid product ID' });
+        }
 
         const user = await User.findById(userId);
         if (!user) {
@@ -349,17 +311,17 @@ router.delete('/users/:userId/product-access/:productId', isAdmin, async (req, r
             return res.status(404).json({ message: 'Product access not found for this user' });
         }
 
-        // Remove the product access from the array
-        user.productAccess = user.productAccess.filter(
-            access => access.productId.toString() !== productId.toString()
+        // Use updateOne with $pull to remove the access
+        await User.updateOne(
+            { _id: userId },
+            { $pull: { productAccess: { productId: new ObjectId(productId) } } }
         );
 
-        await user.save();
-
+        const updatedUser = await User.findById(userId);
         res.json({ 
             success: true,
             message: 'Product access removed successfully',
-            remainingAccess: user.productAccess.length
+            remainingAccess: updatedUser.productAccess.length
         });
     } catch (error) {
         console.error('Error revoking product access:', error);
@@ -370,7 +332,6 @@ router.delete('/users/:userId/product-access/:productId', isAdmin, async (req, r
         });
     }
 });
-
 // Get user's product access
 router.get('/users/:userId/product-access', async (req, res) => {
     try {
