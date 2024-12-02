@@ -341,18 +341,24 @@ router.post('/admin/users/:userId/revoke-product-access', isAdmin, async (req, r
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const access = user.productAccess.find(
-            access => access.productId.toString() === productId.toString()
+        // Remove the product access completely from the array
+        user.productAccess = user.productAccess.filter(
+            access => access.productId.toString() !== productId.toString()
         );
 
-        if (!access) {
-            return res.status(404).json({ message: 'Product access not found' });
+        // Also remove from products array if it exists
+        if (user.products) {
+            user.products = user.products.filter(
+                pid => pid.toString() !== productId.toString()
+            );
         }
 
-        access.isActive = false;
         await user.save();
 
-        res.json({ message: 'Product access revoked successfully' });
+        res.json({ 
+            message: 'Product access revoked successfully',
+            remainingAccess: user.productAccess.length
+        });
     } catch (error) {
         res.status(500).json({ message: 'Error revoking product access', error: error.message });
     }

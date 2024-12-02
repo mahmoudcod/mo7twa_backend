@@ -108,7 +108,7 @@ const userSchema = new mongoose.Schema({
 // Method to check if user has access to a product
 userSchema.methods.hasProductAccess = function(productId) {
     const access = this.productAccess.find(
-        access => access.productId.toString() === productId.toString() && access.isActive
+        access => access.productId.toString() === productId.toString()
     );
     
     if (!access) return false;
@@ -122,6 +122,29 @@ userSchema.methods.getProductAccess = function(productId) {
     return this.productAccess.find(
         access => access.productId.toString() === productId.toString()
     );
+};
+
+// Method to revoke product access
+userSchema.methods.revokeProductAccess = async function(productId) {
+    // Remove from productAccess array
+    this.productAccess = this.productAccess.filter(
+        access => access.productId.toString() !== productId.toString()
+    );
+    
+    // Remove from products array if it exists
+    if (this.products) {
+        this.products = this.products.filter(
+            pid => pid.toString() !== productId.toString()
+        );
+    }
+    
+    // Save the changes
+    await this.save();
+    
+    return {
+        success: true,
+        remainingAccess: this.productAccess.length
+    };
 };
 
 // Method to get all products with access details
