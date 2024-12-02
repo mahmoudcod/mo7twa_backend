@@ -22,10 +22,6 @@ const userProductAccessSchema = new mongoose.Schema({
         ref: 'Product',
         required: true
     },
-    productName: {
-        type: String,
-        required: true
-    },
     startDate: {
         type: Date,
         required: true
@@ -98,7 +94,6 @@ const userSchema = new mongoose.Schema({
             type: mongoose.Schema.Types.ObjectId,
             ref: 'Product'
         },
-        productName: String,
         pageName: String,
         category: String,
         timestamp: {
@@ -139,7 +134,7 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
             
             return {
                 productId: access.productId,
-                productName: access.productName,
+                productName: product ? product.name : 'Unknown Product',
                 startDate: access.startDate,
                 endDate: access.endDate,
                 usageCount: access.usageCount,
@@ -156,12 +151,8 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
 
 // Method to track AI usage
 userSchema.methods.trackAIUsage = async function(productId, pageName, category, prompt, response) {
-    const product = await mongoose.model('Product').findById(productId);
-    const productName = product ? product.name : 'Unknown Product';
-
     this.aiUsageHistory.push({
         productId,
-        productName,
         pageName,
         category,
         prompt,
@@ -176,38 +167,6 @@ userSchema.methods.trackAIUsage = async function(productId, pageName, category, 
     }
     
     await this.save();
-};
-
-// Method to add or update product access
-userSchema.methods.addProductAccess = async function(productId, startDate, endDate) {
-    const product = await mongoose.model('Product').findById(productId);
-    if (!product) {
-        throw new Error('Product not found');
-    }
-
-    const existingAccess = this.productAccess.find(
-        access => access.productId.toString() === productId.toString()
-    );
-
-    if (existingAccess) {
-        existingAccess.productName = product.name;
-        existingAccess.startDate = startDate;
-        existingAccess.endDate = endDate;
-        existingAccess.usageCount = 0;
-        existingAccess.isActive = true;
-    } else {
-        this.productAccess.push({
-            productId,
-            productName: product.name,
-            startDate,
-            endDate,
-            usageCount: 0,
-            isActive: true
-        });
-    }
-
-    await this.save();
-    return this.getProductAccess(productId);
 };
 
 module.exports = mongoose.model('User', userSchema);
