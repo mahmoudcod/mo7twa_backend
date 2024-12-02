@@ -226,7 +226,7 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
     }
 });
 
-//  Revoke product access from user
+// Revoke product access from user
 router.delete('/admin/users/:userId/products/:productId', isAdmin, async (req, res) => {
     const { userId, productId } = req.params;
 
