@@ -288,7 +288,7 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
 const { ObjectId } = require('mongoose').Types;
 
 // Remove product access from user
-router.delete('/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
+router.delete('/admin/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
     try {
         const { userId, productId } = req.params;
 
