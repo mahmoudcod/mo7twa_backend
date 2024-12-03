@@ -38,13 +38,20 @@ const checkProductAccessForAI = async (req, res, next) => {
     try {
         const productId = req.body.productId;
         if (!productId) {
-            return res.status(400).json({ message: 'Product ID is required' });
+            return res.status(400).json({ 
+                message: 'Product ID is required',
+                error: 'No product ID provided in the request'
+            });
         }
 
         const product = await Product.findById(productId);
         if (!product) {
-            return res.status(404).json({ message: 'Product not found' });
+            return res.status(404).json({ 
+                message: 'Product not found',
+                error: `No product found with ID: ${productId}`
+            });
         }
+
 
         const userId = req.user._id;
         const accessCheck = await product.checkAndUpdateUsage(userId);
