@@ -2,7 +2,8 @@ const express = require('express');
 const Page = require('../models/page');
 const User = require('../models/users');
 const Category = require('../models/category');
-const Product = require('../models/Product'); // Add Product model
+const Product = require('../models/Product'); 
+const pageAccess = require('../middleware/pageAccess');
 const router = express.Router();
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
@@ -86,9 +87,9 @@ async function extractTextFromFile(file) {
 }
 
 // Update the page creation route in the backend
-router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
+router.post('/', authenticateUser, pageAccess, upload.single('image'), async (req, res) => {
     try {
-        const { name, description, category, instructions, status } = req.body; // Add status to destructuring
+        const { name, description, category, instructions, status } = req.body; 
 
         let imageUrl = null;
         if (req.file) {
@@ -111,7 +112,7 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
             userInstructions: instructions,
             image: imageUrl,
             user: req.user._id,
-            status: status || 'draft' // Add status field with draft as fallback
+            status: status || 'draft' 
         });
         await page.save();
 
@@ -140,8 +141,8 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
         }
 
         // Generate a base name for cloning
-        const baseName = originalPage.name.replace(/ c\d+$/, ''); // Remove any existing clone suffix
-        const regex = new RegExp(`^${baseName} c(\\d+)$`); // Match names like 'PageName c<number>'
+        const baseName = originalPage.name.replace(/ c\d+$/, ''); 
+        const regex = new RegExp(`^${baseName} c(\\d+)$`); 
         const allPages = await Page.find({ name: { $regex: regex } });
 
         // Determine the next suffix
@@ -160,11 +161,11 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
         const clonedPage = new Page({
             name: newName,
             description: originalPage.description,
-            category: originalPage.category.map(cat => cat._id), // Keep the same categories
+            category: originalPage.category.map(cat => cat._id), 
             userInstructions: originalPage.userInstructions,
-            image: originalPage.image, // Use the same image
-            user: req.user._id, // Associate with the user performing the clone
-            status: originalPage.status // Preserve publish/draft status
+            image: originalPage.image, 
+            user: req.user._id, 
+            status: originalPage.status 
         });
 
         await clonedPage.save();
@@ -191,7 +192,7 @@ router.post('/generate', authenticateUser, checkProductAccessForAI, upload.singl
         // If a file is uploaded, extract text from it
         if (req.file) {
             const extractedText = await extractTextFromFile(req.file);
-            userInput += ` ${extractedText}`; // Append extracted text to user input
+            userInput += ` ${extractedText}`; 
         }
 
         const instructions = req.body.instructions;
@@ -264,7 +265,7 @@ router.get('/all', authenticateUser, async (req, res) => {
             .skip(skip)
             .limit(Number(limit))
             .populate('category')
-            .populate('user', 'email'); // Only populate email from user
+            .populate('user', 'email'); 
 
         const totalCount = await Page.countDocuments();
 
@@ -275,7 +276,7 @@ router.get('/all', authenticateUser, async (req, res) => {
 });
 
 // Get a single page by ID
-router.get('/:id', authenticateUser, async (req, res) => {
+router.get('/:id', authenticateUser, pageAccess, async (req, res) => {
     try {
         const { id } = req.params;
         const page = await Page.findById(id).populate('category').populate('user', 'email');
@@ -297,12 +298,12 @@ router.get('/:id', authenticateUser, async (req, res) => {
 });
 
 // Update Page
-router.put('/:id', authenticateUser, upload.single('image'), async (req, res) => {
+router.put('/:id', authenticateUser, pageAccess, upload.single('image'), async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description, category, instructions,status } = req.body;
 
-        let page = await Page.findById(id).populate('category');  // Make sure to populate category for proper comparison
+        let page = await Page.findById(id).populate('category');  
 
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
@@ -315,10 +316,10 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
 
         // Handle category updates (for multiple categories)
         if (category) {
-            const newCategories = Array.isArray(category) ? category : [category]; // Ensure it's an array
+            const newCategories = Array.isArray(category) ? category : [category]; 
 
             // Remove page from old categories
-            const oldCategories = page.category.map(cat => cat._id.toString());  // Array of old category IDs
+            const oldCategories = page.category.map(cat => cat._id.toString());  
             for (const oldCatId of oldCategories) {
                 if (!newCategories.includes(oldCatId)) {
                     await Category.findByIdAndUpdate(oldCatId, { $pull: { pages: page._id } });
@@ -353,7 +354,7 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
         page.description = description;
         page.userInstructions = instructions;
         page.image = imageUrl;
-         page.status = status || 'draft' // Add status field with draft as fallback
+         page.status = status || 'draft' 
 
 
         // Save the updated page
