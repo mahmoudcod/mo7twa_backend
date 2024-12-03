@@ -187,18 +187,16 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
 // Generate AI response for user input and optional file
 router.post('/generate', authenticateUser, checkProductAccessForAI, upload.single('file'), async (req, res) => {
     try {
-        let userInput = req.body.userInput || '';
+        const { userInput = '', instructions, productId } = req.body;
+
+        if (!productId) {
+            return res.status(400).json({ message: 'Product ID is required for AI generation' });
+        }
 
         // If a file is uploaded, extract text from it
         if (req.file) {
             const extractedText = await extractTextFromFile(req.file);
             userInput += ` ${extractedText}`; 
-        }
-
-        const instructions = req.body.instructions;
-
-        if (!userInput) {
-            return res.status(400).json({ message: 'No user input provided' });
         }
 
         // Send request to OpenAI API
