@@ -38,14 +38,13 @@ const checkProductAccessForAI = async (req, res, next) => {
     try {
         const productId = req.body.productId;
         if (!productId) {
-            console.error('No product ID provided in the request');
             return res.status(400).json({ 
                 message: 'Product ID is required',
                 error: 'No product ID provided in the request'
             });
         }
 
-        const product = await Product.findById(product_id);
+        const product = await Product.findById(productId);
         if (!product) {
             return res.status(404).json({ 
                 message: 'Product not found',
@@ -285,6 +284,14 @@ router.get('/all', authenticateUser, async (req, res) => {
 router.get('/:id', authenticateUser, pageAccess, async (req, res) => {
     try {
         const { id } = req.params;
+        const {productId} = req.query;
+
+        if (productId) {
+            const product = await Product.findById(productId);
+            if (!product) {
+                return res.status(404).json({ message: 'Product not found' });
+            }
+        }
         const page = await Page.findById(id).populate('category').populate('user', 'email');
 
         if (!page) {
