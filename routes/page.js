@@ -38,13 +38,14 @@ const checkProductAccessForAI = async (req, res, next) => {
     try {
         const productId = req.body.productId;
         if (!productId) {
+            console.error('No product ID provided in the request');
             return res.status(400).json({ 
                 message: 'Product ID is required',
                 error: 'No product ID provided in the request'
             });
         }
 
-        const product = await Product.findById(productId);
+        const product = await Product.findById(product_id);
         if (!product) {
             return res.status(404).json({ 
                 message: 'Product not found',
