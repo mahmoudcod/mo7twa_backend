@@ -284,26 +284,35 @@ router.get('/all', authenticateUser, async (req, res) => {
 router.get('/:id', authenticateUser, pageAccess, async (req, res) => {
     try {
         const { id } = req.params;
-        const {productId} = req.query;
+        const { productId } = req.query;
 
-        if (productId) {
-            const product = await Product.findById(productId);
-            if (!product) {
-                return res.status(404).json({ message: 'Product not found' });
-            }
-        }
+        // First fetch the page
         const page = await Page.findById(id).populate('category').populate('user', 'email');
-
+        
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
         }
 
-        // Check if the user is the owner of the page or an admin
-        // if (page.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-        //     return res.status(403).json({ message: 'Access denied' });
-        // }
+        // If productId is provided, verify access
+        if (productId) {
+            const product = await Product.findById(productId);
+            if (!product) {
+                return res.status(404).json({ 
+                    message: 'Product not found',
+                    error: `No product found with ID: ${productId}`
+                });
+            }
 
-        res.status(200).json(page);
+            // Check user's access to the product
+            const accessCheck = await product.checkAndUpdateUsage(req.user._id);
+            if (!accessCheck.allowed) {
+                return res.status(403).json({ 
+                    message: accessCheck.message || 'Access denied. Product usage limit reached or expired.'
+                });
+            }
+        }
+
+        res.json(page);
     } catch (error) {
         console.error('Server error:', error);
         res.status(500).json({ message: 'Error fetching page', error: error.message });

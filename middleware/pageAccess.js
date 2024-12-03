@@ -13,10 +13,18 @@ const pageAccess = async (req, res, next) => {
             return next();
         }
 
+        // For GET requests, productId is optional
+        if (req.method === 'GET') {
+            return next();
+        }
+
         // Get the product ID from the request
         const productId = req.body.productId || req.query.productId;
         if (!productId) {
-            return res.status(400).json({ message: 'Product ID is required' });
+            return res.status(400).json({ 
+                message: 'Product ID is required',
+                error: 'No product ID provided in the request'
+            });
         }
 
         // Find the product
