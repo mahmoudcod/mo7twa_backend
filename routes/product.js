@@ -46,7 +46,6 @@ router.post('/', async (req, res) => {
         accessPeriodDays: req.body.accessPeriodDays,
         pages: req.body.pages,
         category: Array.isArray(req.body.category) ? req.body.category : [req.body.category],
-        userAccess: []
     });
 
     try {
@@ -109,22 +108,6 @@ router.get('/:id', async (req, res) => {
     try {
         const product = await Product.findById(req.params.id)
             .populate('userAccess.userId', 'name email');
-
-        if (req.query.userId) {
-            const userAccess = product.userAccess.find(
-                access => access.userId._id.toString() === req.query.userId
-            );
-
-            const productData = product.toObject();
-            productData.userAccessInfo = userAccess ? {
-                startDate: userAccess.startDate,
-                endDate: userAccess.endDate,
-                isActive: userAccess.endDate > new Date(),
-                remainingDays: Math.ceil((userAccess.endDate - new Date()) / (1000 * 60 * 60 * 24))
-            } : null;
-
-            return res.json(productData);
-        }
 
         res.json(product);
     } catch (err) {
