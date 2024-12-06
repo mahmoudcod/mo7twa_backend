@@ -35,10 +35,11 @@ const authenticateUser = async (req, res, next) => {
 // Middleware to check product access for a page
 const checkProductAccess = async (req, res, next) => {
     try {
-        const pageId = req.params.id || req.body.pageId;
+        const pageId = req.params.id || req.body.pageId || req.query.pageId;
         if (!pageId) {
             return res.status(400).json({ message: 'Page ID is required' });
         }
+
 
         // Find the page
         const page = await Page.findById(pageId);
