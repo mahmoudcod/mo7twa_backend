@@ -3,7 +3,6 @@ const Page = require('../models/page');
 const User = require('../models/users');
 const Category = require('../models/category');
 const Product = require('../models/Product'); 
-const pageAccess = require('../middleware/pageAccess');
 const router = express.Router();
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
@@ -33,41 +32,6 @@ const authenticateUser = async (req, res, next) => {
     }
 };
 
-// Middleware to check product access for AI generation
-const checkProductAccessForAI = async (req, res, next) => {
-    try {
-        const productId = req.body.productId;
-        if (!productId) {
-            return res.status(400).json({ 
-                message: 'Product ID is required',
-                error: 'No product ID provided in the request'
-            });
-        }
-
-        const product = await Product.findById(productId);
-        if (!product) {
-            return res.status(404).json({ 
-                message: 'Product not found',
-                error: `No product found with ID: ${productId}`
-            });
-        }
-
-
-        const userId = req.user._id;
-        const accessCheck = await product.checkAndUpdateUsage(userId);
-        
-        if (!accessCheck.allowed) {
-            return res.status(403).json({ message: accessCheck.message });
-        }
-
-        req.product = product;
-        req.remainingUsage = accessCheck.remainingUsage;
-        next();
-    } catch (err) {
-        res.status(500).json({ message: err.message });
-    }
-};
-
 // Helper function to extract text from various file types
 async function extractTextFromFile(file) {
     const fileExtension = file.originalname.split('.').pop().toLowerCase();
@@ -94,7 +58,7 @@ async function extractTextFromFile(file) {
 }
 
 // Update the page creation route in the backend
-router.post('/', authenticateUser, pageAccess, upload.single('image'), async (req, res) => {
+router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
         const { name, description, category, instructions, status } = req.body; 
 
@@ -192,13 +156,9 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
 });
 
 // Generate AI response for user input and optional file
-router.post('/generate', authenticateUser, checkProductAccessForAI, upload.single('file'), async (req, res) => {
+router.post('/generate', authenticateUser, upload.single('file'), async (req, res) => {
     try {
-        const { userInput = '', instructions, productId } = req.body;
-
-        if (!productId) {
-            return res.status(400).json({ message: 'Product ID is required for AI generation' });
-        }
+        const { userInput = '', instructions } = req.body;
 
         // If a file is uploaded, extract text from it
         if (req.file) {
@@ -227,7 +187,6 @@ router.post('/generate', authenticateUser, checkProductAccessForAI, upload.singl
             user: req.user._id,
             userInput,
             aiOutput,
-            product: req.product._id,
             remainingUsage: req.remainingUsage
         };
 
@@ -281,7 +240,7 @@ router.get('/all', authenticateUser, async (req, res) => {
 });
 
 // Get a single page by ID
-router.get('/:id', authenticateUser, pageAccess, async (req, res) => {
+router.get('/:id', authenticateUser, async (req, res) => {
     try {
         const { id } = req.params;
         const { productId } = req.query;
@@ -293,24 +252,6 @@ router.get('/:id', authenticateUser, pageAccess, async (req, res) => {
             return res.status(404).json({ message: 'Page not found' });
         }
 
-        // If productId is provided, verify access
-        if (productId) {
-            const product = await Product.findById(productId);
-            if (!product) {
-                return res.status(404).json({ 
-                    message: 'Product not found',
-                    error: `No product found with ID: ${productId}`
-                });
-            }
-
-            // Check user's access to the product
-            const accessCheck = await product.checkAndUpdateUsage(req.user._id);
-            if (!accessCheck.allowed) {
-                return res.status(403).json({ 
-                    message: accessCheck.message || 'Access denied. Product usage limit reached or expired.'
-                });
-            }
-        }
 
         res.json(page);
     } catch (error) {
@@ -320,7 +261,7 @@ router.get('/:id', authenticateUser, pageAccess, async (req, res) => {
 });
 
 // Update Page
-router.put('/:id', authenticateUser, pageAccess, upload.single('image'), async (req, res) => {
+router.put('/:id', authenticateUser, upload.single('image'), async (req, res) => {
     try {
         const { id } = req.params;
         const { name, description, category, instructions,status } = req.body;
