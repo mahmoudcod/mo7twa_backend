@@ -167,6 +167,10 @@ router.post('/generate', authenticateUser, upload.single('file'), async (req, re
         }
 
         // Send request to OpenAI API
+        if (!process.env.OPENAI_API_KEY) {
+            return res.status(500).json({ message: 'OpenAI API key is not configured' });
+        }
+
         const response = await axios.post('https://api.openai.com/v1/chat/completions', {
             model: "gpt-4o-mini-2024-07-18",
             messages: [
