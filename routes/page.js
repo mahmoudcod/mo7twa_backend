@@ -35,35 +35,58 @@ const authenticateUser = async (req, res, next) => {
 // Middleware to check product access for a page
 const checkProductAccess = async (req, res, next) => {
     try {
-        const pageId = req.params.id || req.body.pageId || req.query.pageId;
-        if (!pageId) {
-            return res.status(400).json({ message: 'Page ID is required' });
+        const productId = req.query.productId || req.body.productId;
+        if (!productId) {
+            return res.status(400).json({ message: 'Product ID is required' });
         }
 
-
-        // Find the page
-        const page = await Page.findById(pageId);
-        if (!page) {
-            return res.status(404).json({ message: 'Page not found' });
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
         }
 
-        // Find products that contain this page
-        const products = await Product.find({ pages: pageId });
-        if (products.length === 0) {
-            return res.status(404).json({ message: 'No product found for this page' });
+        // Get product access details
+        const productAccess = user.productAccess.find(
+            access => access.productId.toString() === productId && access.isActive
+        );
+
+        if (!productAccess) {
+            return res.status(403).json({ message: 'No active access to this product' });
         }
 
-        // Check if user has access to any of the products containing this page
-        const hasAccess = products.some(product => req.user.hasProductAccess(product._id));
-
-        if (!hasAccess) {
-            return res.status(403).json({ message: 'You do not have access to this page' });
+        // Check if access period has expired
+        if (new Date() > productAccess.endDate) {
+            productAccess.isActive = false;
+            await user.save();
+            return res.status(403).json({ message: 'Product access has expired' });
         }
 
-        req.page = page;
+        // Check usage limit
+        const product = await Product.findById(productId);
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        // If this is a generate request, check and decrement usage
+        if (req.path === '/generate') {
+            if (productAccess.usageCount >= product.promptLimit) {
+                return res.status(403).json({ message: 'Usage limit exceeded for this product' });
+            }
+
+            // Increment usage count
+            productAccess.usageCount += 1;
+            productAccess.lastUsed = new Date();
+            await user.save();
+
+            // Add remaining usage info to request
+            req.remainingUsage = product.promptLimit - productAccess.usageCount;
+        }
+
+        req.productAccess = productAccess;
         next();
     } catch (error) {
-        res.status(500).json({ message: 'Error checking product access', error: error.message });
+        console.error('Error in checkProductAccess middleware:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
 
