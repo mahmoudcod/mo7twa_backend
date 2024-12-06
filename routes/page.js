@@ -221,24 +221,17 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
 
         const aiOutput = response.data.choices[0].message.content;
 
-        // Decrease the user's remaining usage
-        const user = await User.findById(req.user._id);
-        if (user.remainingUsage > 0) {
-            user.remainingUsage -= 1;
-            await user.save();
-        }
-
-        // Save AI interaction with updated usage info
+        // Save AI interaction with product usage info
         const aiInteraction = {
             user: req.user._id,
             userInput,
             aiOutput,
-            remainingUsage: user.remainingUsage
+            remainingUsage: req.remainingUsage
         };
 
         res.json({
             output: aiOutput,
-            remainingUsage: user.remainingUsage
+            remainingUsage: req.remainingUsage
         });
     } catch (error) {
         console.error('Error generating AI response:', error);
