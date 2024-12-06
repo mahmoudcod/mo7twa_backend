@@ -32,6 +32,40 @@ const authenticateUser = async (req, res, next) => {
     }
 };
 
+// Middleware to check product access for a page
+const checkProductAccess = async (req, res, next) => {
+    try {
+        const pageId = req.params.id || req.body.pageId;
+        if (!pageId) {
+            return res.status(400).json({ message: 'Page ID is required' });
+        }
+
+        // Find the page
+        const page = await Page.findById(pageId);
+        if (!page) {
+            return res.status(404).json({ message: 'Page not found' });
+        }
+
+        // Find products that contain this page
+        const products = await Product.find({ pages: pageId });
+        if (products.length === 0) {
+            return res.status(404).json({ message: 'No product found for this page' });
+        }
+
+        // Check if user has access to any of the products containing this page
+        const hasAccess = products.some(product => req.user.hasProductAccess(product._id));
+
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'You do not have access to this page' });
+        }
+
+        req.page = page;
+        next();
+    } catch (error) {
+        res.status(500).json({ message: 'Error checking product access', error: error.message });
+    }
+};
+
 // Helper function to extract text from various file types
 async function extractTextFromFile(file) {
     const fileExtension = file.originalname.split('.').pop().toLowerCase();
@@ -156,7 +190,7 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
 });
 
 // Generate AI response for user input and optional file
-router.post('/generate', authenticateUser, upload.single('file'), async (req, res) => {
+router.post('/generate', authenticateUser, upload.single('file'), checkProductAccess, async (req, res) => {
     try {
         const { userInput = '', instructions } = req.body;
 
@@ -208,7 +242,7 @@ router.post('/generate', authenticateUser, upload.single('file'), async (req, re
 });
 
 // Get all pages for a user
-router.get('/my-pages', authenticateUser, async (req, res) => {
+router.get('/my-pages', authenticateUser,checkProductAccess, async (req, res) => {
     try {
         if (!req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied. Admin only.' });
@@ -220,7 +254,7 @@ router.get('/my-pages', authenticateUser, async (req, res) => {
 });
 
 // Get All Pages with Pagination (Admin only)
-router.get('/all', authenticateUser, async (req, res) => {
+router.get('/all', authenticateUser,checkProductAccess, async (req, res) => {
     try {
         if (!req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied. Admin only.' });
