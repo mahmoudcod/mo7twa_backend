@@ -278,7 +278,7 @@ router.get('/my-pages', authenticateUser,checkProductAccess, async (req, res) =>
 });
 
 // Get All Pages with Pagination (Admin only)
-router.get('/all', authenticateUser,checkProductAccess, async (req, res) => {
+router.get('/all', authenticateUser, async (req, res) => {
     try {
         if (!req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied. Admin only.' });
