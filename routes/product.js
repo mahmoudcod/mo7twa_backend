@@ -17,7 +17,6 @@ router.get('/', async (req, res) => {
         }
 
         const products = await Product.find(filter)
-            .populate('userAccess.userId', 'name email')
             .skip(skip)
             .limit(limitNum)
             .exec();
@@ -103,25 +102,58 @@ router.patch('/:id', async (req, res) => {
     }
 });
 
-// Get a specific product
+// Get a specific product by ID
 router.get('/:id', async (req, res) => {
     try {
-        const product = await Product.findById(req.params.id)
+        const product = await Product.findById(req.params.id);
+        
+        if (!product) {
+            return res.status(404).json({ message: 'Product not found' });
+        }
+
+        // If userId is provided, get access info from User model instead
+        if (req.query.userId) {
+            const user = await User.findById(req.query.userId);
+            if (!user) {
+                return res.status(404).json({ message: 'User not found' });
+            }
+
+            const productAccess = user.productAccess.find(
+                access => access.productId.toString() === req.params.id
+            );
+
+            if (!productAccess) {
+                return res.json({
+                    ...product.toObject(),
+                    userAccessInfo: null
+                });
+            }
+
+            const now = new Date();
+            const remainingDays = Math.ceil((productAccess.endDate - now) / (1000 * 60 * 60 * 24));
+            
+            return res.json({
+                ...product.toObject(),
+                userAccessInfo: {
+                    startDate: productAccess.startDate,
+                    endDate: productAccess.endDate,
+                    isActive: productAccess.endDate > now,
+                    remainingDays: remainingDays > 0 ? remainingDays : 0,
+                    usageCount: productAccess.usageCount,
+                    lastUsed: productAccess.lastUsed
+                }
+            });
+        }
 
         res.json(product);
     } catch (err) {
-        res.status(500).json({ message: err.message });
+        res.status(500).json({ message: 'Error retrieving product', error: err.message });
     }
 });
 
 // Delete a product
 router.delete('/:id', async (req, res) => {
     try {
-        await User.updateMany(
-            { products: req.product._id },
-            { $pull: { products: req.product._id } }
-        );
-
         await req.product.deleteOne();
         res.json({ message: 'Product deleted successfully' });
     } catch (err) {

@@ -26,33 +26,7 @@ const productSchema = new mongoose.Schema({
         type: [String],
         default: [],
         required: true
-    },
-    userAccess: [{
-        userId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            required: true
-        },
-        startDate: {
-            type: Date,
-            required: true
-        },
-        endDate: {
-            type: Date,
-            required: true
-        },
-        usageCount: {
-            type: Number,
-            default: 0
-        },
-        lastUsed: {
-            type: Date,
-            default: Date.now
-        }
-    }]
+    }
 });
-
-
-
 
 module.exports = mongoose.model('Product', productSchema);
