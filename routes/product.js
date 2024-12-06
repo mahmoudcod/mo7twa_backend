@@ -58,7 +58,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a product
-router.patch('/:id', checkProductAccess, async (req, res) => {
+router.patch('/:id', async (req, res) => {
     try {
         if (req.body.name != null) {
             req.product.name = req.body.name;
@@ -105,7 +105,7 @@ router.patch('/:id', checkProductAccess, async (req, res) => {
 });
 
 // Get a specific product
-router.get('/:id', checkProductAccess, async (req, res) => {
+router.get('/:id', async (req, res) => {
     try {
         const product = await Product.findById(req.params.id)
             .populate('userAccess.userId', 'name email');
@@ -133,7 +133,7 @@ router.get('/:id', checkProductAccess, async (req, res) => {
 });
 
 // Delete a product
-router.delete('/:id', checkProductAccess, async (req, res) => {
+router.delete('/:id', async (req, res) => {
     try {
         await User.updateMany(
             { products: req.product._id },
