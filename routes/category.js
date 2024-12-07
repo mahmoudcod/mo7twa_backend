@@ -8,23 +8,7 @@ const Product = require('../models/Product');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
-// Middleware to authenticate user
-const authenticateUser = async (req, res, next) => {
-    try {
-        const token = req.header('Authorization').replace('Bearer ', '');
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findOne({ _id: decoded.id });
 
-        if (!user) {
-            throw new Error();
-        }
-
-        req.user = user;
-        next();
-    } catch (error) {
-        res.status(401).send({ error: 'Please authenticate.' });
-    }
-};
 
 // Middleware to check if user is admin
 const isAdmin = async (req, res, next) => {
@@ -75,7 +59,7 @@ const checkCategoryAccess = async (req, res, next) => {
 };
 
 // Create Category (Admin Only)
-router.post('/', authenticateUser, isAdmin, async (req, res) => {
+router.post('/', isAdmin, async (req, res) => {
     try {
         const { pages, ...categoryData } = req.body;
         const newCategory = await Category.create(categoryData);
@@ -99,7 +83,7 @@ router.post('/', authenticateUser, isAdmin, async (req, res) => {
 });
 
 // Get All Categories (Filtered by user's product access)
-router.get('/', authenticateUser, async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
@@ -141,7 +125,7 @@ router.get('/', authenticateUser, async (req, res) => {
 });
 
 // Get Single Category
-router.get('/:id', authenticateUser, checkCategoryAccess, async (req, res) => {
+router.get('/:id', checkCategoryAccess, async (req, res) => {
     try {
         const category = await Category.findById(req.params.id)
             .populate('subcategories')
@@ -154,7 +138,7 @@ router.get('/:id', authenticateUser, checkCategoryAccess, async (req, res) => {
 });
 
 // Update Category (Admin Only)
-router.put('/:id', authenticateUser, isAdmin, async (req, res) => {
+router.put('/:id', isAdmin, async (req, res) => {
     try {
         const updatedCategory = await Category.findByIdAndUpdate(
             req.params.id,
@@ -174,7 +158,7 @@ router.put('/:id', authenticateUser, isAdmin, async (req, res) => {
 });
 
 // Delete Category (Admin Only)
-router.delete('/:id', authenticateUser, isAdmin, async (req, res) => {
+router.delete('/:id', isAdmin, async (req, res) => {
     try {
         const deletedCategory = await Category.findByIdAndDelete(req.params.id);
         if (!deletedCategory) {
@@ -195,7 +179,7 @@ router.delete('/:id', authenticateUser, isAdmin, async (req, res) => {
 });
 
 // Create Subcategory (Admin Only)
-router.post('/:categoryId/subcategory', authenticateUser, isAdmin, async (req, res) => {
+router.post('/:categoryId/subcategory', isAdmin, async (req, res) => {
     try {
         const { categoryId } = req.params;
         const subcategory = new Subcategory({ ...req.body, category: categoryId });
