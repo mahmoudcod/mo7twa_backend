@@ -94,7 +94,7 @@ const checkProductAccess = async (req, res, next) => {
 const checkPageAccess = async (req, res, next) => {
     try {
         const pageId = req.params.id;
-        const page = await Page.findById(pageId);
+        const page = await Page.findById(pageId).populate('category');
         
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
@@ -117,15 +117,23 @@ const checkPageAccess = async (req, res, next) => {
             .filter(access => access.isActive)
             .map(access => access.productId);
 
-        // Find any product that contains this page ID
+        // Get the categories of the page
+        const pageCategories = page.category.map(cat => cat.name);
+
+        // Find any product that either:
+        // 1. Contains this page ID directly OR
+        // 2. Has a matching category
         const product = await Product.findOne({
             _id: { $in: userActiveProductIds },
-            pages: pageId
+            $or: [
+                { pages: pageId },
+                { category: { $in: pageCategories } }
+            ]
         });
 
         if (!product) {
             return res.status(403).json({ 
-                message: 'Access denied. This page is not included in any of your active products.'
+                message: 'Access denied. This page is not included in your products or categories.'
             });
         }
 
@@ -510,13 +518,19 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             _id: { $in: activeProductIds }
         });
 
-        // Get all page IDs from these products
+        // Get all page IDs and categories from these products
         const accessiblePageIds = products.reduce((acc, product) => [...acc, ...product.pages], []);
+        const accessibleCategories = products.reduce((acc, product) => [...acc, ...product.category], []);
 
-        // Find pages that exist in the accessible page IDs
+        // Find pages that either:
+        // 1. Exist in the accessible page IDs OR
+        // 2. Have a category that matches any of the accessible categories
         const pages = await Page.find({
-            _id: { $in: accessiblePageIds },
-            status
+            status,
+            $or: [
+                { _id: { $in: accessiblePageIds } },
+                { 'category.name': { $in: accessibleCategories } }
+            ]
         })
         .skip(skip)
         .limit(limit)
@@ -524,8 +538,11 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
         .sort({ createdAt: -1 });
 
         const total = await Page.countDocuments({
-            _id: { $in: accessiblePageIds },
-            status
+            status,
+            $or: [
+                { _id: { $in: accessiblePageIds } },
+                { 'category.name': { $in: accessibleCategories } }
+            ]
         });
 
         res.json({
