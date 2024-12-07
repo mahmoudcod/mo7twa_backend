@@ -9,27 +9,24 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 
 // Middleware to check if user is admin
+// Middleware to check if user is admin
 const isAdmin = async (req, res, next) => {
     try {
-        const authHeader = req.header('Authorization');
-        if (!authHeader) {
-            return res.status(401).json({ message: 'No authentication token provided' });
-        }
-
-        const token = authHeader.replace('Bearer ', '');
+        const token = req.header('Authorization').replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const user = await User.findOne({ _id: decoded.id });
+        const user = await User.findOne({ _id: decoded.id, isAdmin: true });
 
-        if (!user || !user.isAdmin) {
-            return res.status(403).json({ message: 'Access denied. Admin only.' });
+        if (!user) {
+            throw new Error();
         }
 
         req.user = user;
         next();
     } catch (error) {
-        res.status(401).json({ message: 'Authentication failed', error: error.message });
+        res.status(401).send({ error: 'Please authenticate as admin.' });
     }
 };
+
 
 // Middleware to check category access for reading
 const checkCategoryAccess = async (req, res, next) => {
