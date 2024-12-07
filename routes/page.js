@@ -117,28 +117,38 @@ const checkPageAccess = async (req, res, next) => {
             .filter(access => access.isActive)
             .map(access => access.productId);
 
-        // Get the categories of the page
-        const pageCategories = page.category.map(cat => cat.name);
-
-        // Find any product that either:
-        // 1. Contains this page ID directly OR
-        // 2. Has a matching category
-        const product = await Product.findOne({
-            _id: { $in: userActiveProductIds },
-            $or: [
-                { pages: pageId },
-                { category: { $in: pageCategories } }
-            ]
+        const products = await Product.find({
+            _id: { $in: userActiveProductIds }
         });
 
-        if (!product) {
-            return res.status(403).json({ 
-                message: 'Access denied. This page is not included in your products or categories.'
-            });
+        // Check access conditions:
+        // 1. First check if the page ID is directly in any product's pages array
+        const hasDirectAccess = products.some(product => 
+            product.pages.includes(pageId)
+        );
+
+        if (hasDirectAccess) {
+            req.page = page;
+            return next();
         }
 
-        req.page = page;
-        next();
+        // 2. If no direct access, check if any of the user's products has a matching category
+        const pageCategories = page.category.map(cat => cat.name);
+        const hasAccessViaCategory = products.some(product => 
+            product.category.some(prodCategory => 
+                pageCategories.includes(prodCategory)
+            )
+        );
+
+        if (hasAccessViaCategory) {
+            req.page = page;
+            return next();
+        }
+
+        return res.status(403).json({ 
+            message: 'Access denied. This page is not included in your products and its category does not match any of your products.'
+        });
+
     } catch (error) {
         console.error('Error in checkPageAccess:', error);
         res.status(500).json({ message: 'Error checking page access', error: error.message });
@@ -518,13 +528,15 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             _id: { $in: activeProductIds }
         });
 
-        // Get all page IDs and categories from these products
+        // Get all page IDs from products
         const accessiblePageIds = products.reduce((acc, product) => [...acc, ...product.pages], []);
+        
+        // Get all categories from products
         const accessibleCategories = products.reduce((acc, product) => [...acc, ...product.category], []);
 
         // Find pages that either:
-        // 1. Exist in the accessible page IDs OR
-        // 2. Have a category that matches any of the accessible categories
+        // 1. Are directly listed in product pages arrays OR
+        // 2. Belong to a category that's listed in any of the user's products
         const pages = await Page.find({
             status,
             $or: [
