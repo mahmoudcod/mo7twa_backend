@@ -8,19 +8,38 @@ const Product = require('../models/Product');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
-
-
 // Middleware to check if user is admin
 const isAdmin = async (req, res, next) => {
-    if (!req.user || !req.user.isAdmin) {
-        return res.status(403).json({ message: 'Access denied. Admin only.' });
+    try {
+        const token = req.header('Authorization').replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findOne({ _id: decoded.id });
+
+        if (!user || !user.isAdmin) {
+            return res.status(403).json({ message: 'Access denied. Admin only.' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        res.status(401).json({ message: 'Authentication failed', error: error.message });
     }
-    next();
 };
 
 // Middleware to check category access for reading
 const checkCategoryAccess = async (req, res, next) => {
     try {
+        // First authenticate the user
+        const token = req.header('Authorization').replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findOne({ _id: decoded.id });
+
+        if (!user) {
+            return res.status(401).json({ message: 'Authentication failed' });
+        }
+
+        req.user = user;
+
         const categoryId = req.params.categoryId || req.params.id;
         const category = await Category.findById(categoryId);
         
@@ -29,13 +48,13 @@ const checkCategoryAccess = async (req, res, next) => {
         }
 
         // If user is admin, grant access
-        if (req.user.isAdmin) {
+        if (user.isAdmin) {
             req.category = category;
             return next();
         }
 
         // For regular users, check if they have access through their products
-        const userActiveProductIds = req.user.productAccess
+        const userActiveProductIds = user.productAccess
             .filter(access => access.isActive)
             .map(access => access.productId);
 
@@ -54,7 +73,7 @@ const checkCategoryAccess = async (req, res, next) => {
         next();
     } catch (error) {
         console.error('Error in checkCategoryAccess:', error);
-        res.status(500).json({ message: 'Error checking category access', error: error.message });
+        res.status(401).json({ message: 'Authentication failed', error: error.message });
     }
 };
 
@@ -85,6 +104,15 @@ router.post('/', isAdmin, async (req, res) => {
 // Get All Categories (Filtered by user's product access)
 router.get('/', async (req, res) => {
     try {
+        // First authenticate the user
+        const token = req.header('Authorization').replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findOne({ _id: decoded.id });
+
+        if (!user) {
+            return res.status(401).json({ message: 'Authentication failed' });
+        }
+
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
@@ -92,8 +120,8 @@ router.get('/', async (req, res) => {
         let categoryQuery = {};
 
         // If not admin, filter categories based on user's product access
-        if (!req.user.isAdmin) {
-            const userActiveProductIds = req.user.productAccess
+        if (!user.isAdmin) {
+            const userActiveProductIds = user.productAccess
                 .filter(access => access.isActive)
                 .map(access => access.productId);
 
@@ -119,8 +147,8 @@ router.get('/', async (req, res) => {
             totalPages: Math.ceil(totalCount / limit)
         });
     } catch (error) {
-        console.error('Error fetching categories:', error);
-        res.status(500).json({ message: 'Error fetching categories', error: error.message });
+        console.error('Error in get categories:', error);
+        res.status(401).json({ message: 'Authentication failed', error: error.message });
     }
 });
 
