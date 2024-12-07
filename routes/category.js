@@ -11,7 +11,12 @@ const jwt = require('jsonwebtoken');
 // Middleware to check if user is admin
 const isAdmin = async (req, res, next) => {
     try {
-        const token = req.header('Authorization').replace('Bearer ', '');
+        const authHeader = req.header('Authorization');
+        if (!authHeader) {
+            return res.status(401).json({ message: 'No authentication token provided' });
+        }
+
+        const token = authHeader.replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: decoded.id });
 
@@ -30,7 +35,12 @@ const isAdmin = async (req, res, next) => {
 const checkCategoryAccess = async (req, res, next) => {
     try {
         // First authenticate the user
-        const token = req.header('Authorization').replace('Bearer ', '');
+        const authHeader = req.header('Authorization');
+        if (!authHeader) {
+            return res.status(401).json({ message: 'No authentication token provided' });
+        }
+
+        const token = authHeader.replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: decoded.id });
 
@@ -105,7 +115,12 @@ router.post('/', isAdmin, async (req, res) => {
 router.get('/', async (req, res) => {
     try {
         // First authenticate the user
-        const token = req.header('Authorization').replace('Bearer ', '');
+        const authHeader = req.header('Authorization');
+        if (!authHeader) {
+            return res.status(401).json({ message: 'No authentication token provided' });
+        }
+
+        const token = authHeader.replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: decoded.id });
 
