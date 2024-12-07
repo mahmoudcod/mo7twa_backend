@@ -90,6 +90,37 @@ const checkProductAccess = async (req, res, next) => {
     }
 };
 
+// Middleware to check page access
+const checkPageAccess = async (req, res, next) => {
+    try {
+        const pageId = req.params.id;
+        const page = await Page.findById(pageId);
+        
+        if (!page) {
+            return res.status(404).json({ message: 'Page not found' });
+        }
+
+        // Get user's active product access
+        const user = await User.findById(req.user._id);
+        const activeProductAccess = user.productAccess.filter(access => access.isActive);
+        
+        // Check if the page belongs to any of the user's active products
+        const hasAccess = activeProductAccess.some(access => {
+            const product = access.productId;
+            return page.products.includes(product);
+        });
+
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'Access denied. You do not have access to this page.' });
+        }
+
+        req.page = page;
+        next();
+    } catch (error) {
+        res.status(500).json({ message: 'Error checking page access', error: error.message });
+    }
+};
+
 // Helper function to extract text from various file types
 async function extractTextFromFile(file) {
     const fileExtension = file.originalname.split('.').pop().toLowerCase();
@@ -116,7 +147,7 @@ async function extractTextFromFile(file) {
 }
 
 // Update the page creation route in the backend
-router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
+router.post('/', authenticateUser, checkProductAccess, upload.single('image'), async (req, res) => {
     try {
         const { name, description, category, instructions, status } = req.body; 
 
@@ -302,42 +333,16 @@ router.get('/all', authenticateUser, async (req, res) => {
 });
 
 // Get a single page by ID
-router.get('/:id', authenticateUser, async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { productId } = req.query;
-
-        // First fetch the page
-        const page = await Page.findById(id).populate('category').populate('user', 'email');
-        
-        if (!page) {
-            return res.status(404).json({ message: 'Page not found' });
-        }
-
-
-        res.json(page);
-    } catch (error) {
-        console.error('Server error:', error);
-        res.status(500).json({ message: 'Error fetching page', error: error.message });
-    }
+router.get('/:id', authenticateUser, checkPageAccess, async (req, res) => {
+    res.json(req.page);
 });
 
 // Update Page
-router.put('/:id', authenticateUser, upload.single('image'), async (req, res) => {
+router.put('/:id', authenticateUser, checkPageAccess, upload.single('image'), async (req, res) => {
     try {
-        const { id } = req.params;
         const { name, description, category, instructions,status } = req.body;
 
-        let page = await Page.findById(id).populate('category');  
-
-        if (!page) {
-            return res.status(404).json({ message: 'Page not found' });
-        }
-
-        // Ensure only the user who owns the page or admin can update it
-        if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-            return res.status(403).json({ message: 'Access denied' });
-        }
+        let page = req.page;
 
         // Handle category updates (for multiple categories)
         if (category) {
@@ -394,9 +399,8 @@ router.put('/:id', authenticateUser, upload.single('image'), async (req, res) =>
 });
 
 // Update page status (publish/draft)
-router.put('/:id/status', authenticateUser, async (req, res) => {
+router.put('/:id/status', authenticateUser, checkPageAccess, async (req, res) => {
     try {
-        const { id } = req.params;
         const { status } = req.body;
 
         // Validate status input
@@ -414,47 +418,33 @@ router.put('/:id/status', authenticateUser, async (req, res) => {
             });
         }
 
-        // Find and validate page
-        const page = await Page.findById(id)
-            .populate('category')
-            .populate('user', 'email');
-
-        if (!page) {
-            return res.status(404).json({ message: 'Page not found' });
-        }
-
-        // Check authorization
-        if (page.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-            return res.status(403).json({ message: 'Access denied' });
-        }
-
         // Validate status transition
-        if (!Page.validateStatusTransition(page.status, normalizedStatus)) {
+        if (!Page.validateStatusTransition(req.page.status, normalizedStatus)) {
             return res.status(400).json({ 
-                message: `Invalid status transition from ${page.status} to ${normalizedStatus}`
+                message: `Invalid status transition from ${req.page.status} to ${normalizedStatus}`
             });
         }
 
         // Additional validation for publishing
-        if (normalizedStatus === 'published' && !page.isPublishable()) {
+        if (normalizedStatus === 'published' && !req.page.isPublishable()) {
             return res.status(400).json({
                 message: 'Cannot publish page: missing required fields'
             });
         }
 
         // Update status
-        page.status = normalizedStatus;
-        page.lastModifiedBy = req.user._id;
-        await page.save();
+        req.page.status = normalizedStatus;
+        req.page.lastModifiedBy = req.user._id;
+        await req.page.save();
 
         res.status(200).json({
             message: `Page status updated to ${normalizedStatus}`,
             page: {
-                id: page._id,
-                name: page.name,
-                status: page.status,
-                statusUpdatedAt: page.statusUpdatedAt,
-                lastModifiedBy: page.lastModifiedBy
+                id: req.page._id,
+                name: req.page.name,
+                status: req.page.status,
+                statusUpdatedAt: req.page.statusUpdatedAt,
+                lastModifiedBy: req.page.lastModifiedBy
             }
         });
 
@@ -467,57 +457,43 @@ router.put('/:id/status', authenticateUser, async (req, res) => {
     }
 });
 
-// Get pages by status
+// Get pages by status with product access check
 router.get('/status/:status', authenticateUser, async (req, res) => {
     try {
         const { status } = req.params;
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
-        const sort = req.query.sort || '-updatedAt';
+        const skip = (page - 1) * limit;
 
-        // Validate status
-        if (!['published', 'draft'].includes(status.toLowerCase())) {
-            return res.status(400).json({ 
-                message: 'Invalid status. Must be "published" or "draft"'
-            });
-        }
+        // Get user's active product access
+        const user = await User.findById(req.user._id);
+        const activeProductIds = user.productAccess
+            .filter(access => access.isActive)
+            .map(access => access.productId);
 
-        // Build query
-        const query = { status: status.toLowerCase() };
-        
-        // Add user filter for non-admin users
-        if (!req.user.isAdmin) {
-            query.user = req.user._id;
-        }
+        // Find pages that belong to user's active products
+        const pages = await Page.find({
+            status,
+            products: { $in: activeProductIds }
+        })
+        .skip(skip)
+        .limit(limit)
+        .populate('category')
+        .sort({ createdAt: -1 });
 
-        // Execute paginated query
-        const pages = await Page.find(query)
-            .populate('category')
-            .populate('user', 'email')
-            .sort(sort)
-            .skip((page - 1) * limit)
-            .limit(limit)
-            .lean();
+        const total = await Page.countDocuments({
+            status,
+            products: { $in: activeProductIds }
+        });
 
-        // Get total count for pagination
-        const totalCount = await Page.countDocuments(query);
-
-        res.status(200).json({
+        res.json({
             pages,
-            pagination: {
-                currentPage: page,
-                totalPages: Math.ceil(totalCount / limit),
-                totalItems: totalCount,
-                itemsPerPage: limit
-            }
+            currentPage: page,
+            totalPages: Math.ceil(total / limit),
+            total
         });
-
     } catch (error) {
-        console.error('Status retrieval error:', error);
-        res.status(500).json({ 
-            message: 'Error fetching pages',
-            error: error.message 
-        });
+        res.status(500).json({ message: 'Error fetching pages', error: error.message });
     }
 });
 
@@ -557,24 +533,13 @@ router.get('/published', async (req, res) => {
 });
 
 // Delete Page
-router.delete('/:id', authenticateUser, async (req, res) => {
+router.delete('/:id', authenticateUser, checkPageAccess, async (req, res) => {
     try {
-        const { id } = req.params;
-        const page = await Page.findById(id);
+        await Category.findByIdAndUpdate(req.page.category, { $pull: { pages: req.page._id } });
 
-        if (!page) {
-            return res.status(404).json({ message: 'Page not found' });
-        }
+        await Page.findByIdAndDelete(req.page._id);
 
-        if (page.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-            return res.status(403).json({ message: 'Access denied' });
-        }
-
-        await Category.findByIdAndUpdate(page.category, { $pull: { pages: page._id } });
-
-        await Page.findByIdAndDelete(id);
-
-        await User.findByIdAndUpdate(req.user._id, { $pull: { aiInteractions: id } });
+        await User.findByIdAndUpdate(req.user._id, { $pull: { aiInteractions: req.page._id } });
 
         res.status(200).json({ message: 'Page deleted successfully' });
     } catch (error) {
