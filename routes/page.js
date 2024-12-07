@@ -102,36 +102,39 @@ const checkPageAccess = async (req, res, next) => {
 
         // Get user's active product access
         const user = await User.findById(req.user._id);
-        const activeProductIds = user.productAccess
-            .filter(access => access.isActive)
-            .map(access => access.productId.toString());
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
 
-        // Admin bypass
+        // If user is admin, grant access
         if (user.isAdmin) {
             req.page = page;
             return next();
         }
 
-        // Check if any of the page's products match user's active products
-        const pageProductIds = page.products.map(product => product.toString());
+        // Get the product IDs that the user has active access to
+        const userActiveProductIds = user.productAccess
+            .filter(access => access.isActive)
+            .map(access => access.productId.toString());
+
+        // Check if any of the page's products are in user's active products
+        const pageProductIds = page.products.map(product => product._id.toString());
         const hasAccess = pageProductIds.some(productId => 
-            activeProductIds.includes(productId)
+            userActiveProductIds.includes(productId)
         );
 
         if (!hasAccess) {
-            console.log('Debug - Page Products:', pageProductIds);
-            console.log('Debug - User Active Products:', activeProductIds);
             return res.status(403).json({ 
-                message: 'Access denied. You do not have access to this page.',
+                message: 'Access denied. This page belongs to a product you do not have access to.',
                 pageProducts: pageProductIds,
-                yourActiveProducts: activeProductIds
+                yourProducts: userActiveProductIds
             });
         }
 
         req.page = page;
         next();
     } catch (error) {
-        console.error('Page access error:', error);
+        console.error('Error in checkPageAccess:', error);
         res.status(500).json({ message: 'Error checking page access', error: error.message });
     }
 };
@@ -486,20 +489,22 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             .filter(access => access.isActive)
             .map(access => access.productId);
 
-        // Build the query
-        const query = { status };
-        
-        // If not admin, filter by accessible products
-        if (!user.isAdmin) {
-            query.products = { $in: activeProductIds };
+        // Find pages that belong to user's active products
+        const query = {
+            status,
+            products: { $in: activeProductIds }
+        };
+
+        // If user is admin, don't filter by products
+        if (user.isAdmin) {
+            delete query.products;
         }
 
-        // Find pages with populated products
         const pages = await Page.find(query)
-            .populate('products')
-            .populate('category')
             .skip(skip)
             .limit(limit)
+            .populate('category')
+            .populate('products')
             .sort({ createdAt: -1 });
 
         const total = await Page.countDocuments(query);
@@ -508,14 +513,10 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             pages,
             currentPage: page,
             totalPages: Math.ceil(total / limit),
-            total,
-            debug: {
-                activeProductIds: activeProductIds.map(id => id.toString()),
-                query
-            }
+            total
         });
     } catch (error) {
-        console.error('Error fetching pages by status:', error);
+        console.error('Error in get pages by status:', error);
         res.status(500).json({ message: 'Error fetching pages', error: error.message });
     }
 });
