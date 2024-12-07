@@ -94,7 +94,7 @@ const checkProductAccess = async (req, res, next) => {
 const checkPageAccess = async (req, res, next) => {
     try {
         const pageId = req.params.id;
-        const page = await Page.findById(pageId).populate('products');
+        const page = await Page.findById(pageId);
         
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
@@ -112,22 +112,20 @@ const checkPageAccess = async (req, res, next) => {
             return next();
         }
 
-        // Get the product IDs that the user has active access to
+        // Get all products that user has active access to
         const userActiveProductIds = user.productAccess
             .filter(access => access.isActive)
-            .map(access => access.productId.toString());
+            .map(access => access.productId);
 
-        // Check if any of the page's products are in user's active products
-        const pageProductIds = page.products.map(product => product._id.toString());
-        const hasAccess = pageProductIds.some(productId => 
-            userActiveProductIds.includes(productId)
-        );
+        // Find any product that contains this page ID
+        const product = await Product.findOne({
+            _id: { $in: userActiveProductIds },
+            pages: pageId
+        });
 
-        if (!hasAccess) {
+        if (!product) {
             return res.status(403).json({ 
-                message: 'Access denied. This page belongs to a product you do not have access to.',
-                pageProducts: pageProductIds,
-                yourProducts: userActiveProductIds
+                message: 'Access denied. This page is not included in any of your active products.'
             });
         }
 
@@ -489,25 +487,46 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             .filter(access => access.isActive)
             .map(access => access.productId);
 
-        // Find pages that belong to user's active products
-        const query = {
-            status,
-            products: { $in: activeProductIds }
-        };
-
-        // If user is admin, don't filter by products
         if (user.isAdmin) {
-            delete query.products;
+            // Admin can see all pages
+            const pages = await Page.find({ status })
+                .skip(skip)
+                .limit(limit)
+                .populate('category')
+                .sort({ createdAt: -1 });
+
+            const total = await Page.countDocuments({ status });
+
+            return res.json({
+                pages,
+                currentPage: page,
+                totalPages: Math.ceil(total / limit),
+                total
+            });
         }
 
-        const pages = await Page.find(query)
-            .skip(skip)
-            .limit(limit)
-            .populate('category')
-            .populate('products')
-            .sort({ createdAt: -1 });
+        // For regular users, get all products they have access to
+        const products = await Product.find({
+            _id: { $in: activeProductIds }
+        });
 
-        const total = await Page.countDocuments(query);
+        // Get all page IDs from these products
+        const accessiblePageIds = products.reduce((acc, product) => [...acc, ...product.pages], []);
+
+        // Find pages that exist in the accessible page IDs
+        const pages = await Page.find({
+            _id: { $in: accessiblePageIds },
+            status
+        })
+        .skip(skip)
+        .limit(limit)
+        .populate('category')
+        .sort({ createdAt: -1 });
+
+        const total = await Page.countDocuments({
+            _id: { $in: accessiblePageIds },
+            status
+        });
 
         res.json({
             pages,
