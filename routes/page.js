@@ -117,36 +117,34 @@ const checkPageAccess = async (req, res, next) => {
             .filter(access => access.isActive)
             .map(access => access.productId);
 
-        const products = await Product.find({
-            _id: { $in: userActiveProductIds }
+        // First check if any of user's products directly include this page
+        const productWithPage = await Product.findOne({
+            _id: { $in: userActiveProductIds },
+            pages: pageId
         });
 
-        // Check access conditions:
-        // 1. First check if the page ID is directly in any product's pages array
-        const hasDirectAccess = products.some(product => 
-            product.pages.includes(pageId)
-        );
-
-        if (hasDirectAccess) {
+        if (productWithPage) {
             req.page = page;
             return next();
         }
 
-        // 2. If no direct access, check if any of the user's products has a matching category
-        const pageCategories = page.category.map(cat => cat.name);
-        const hasAccessViaCategory = products.some(product => 
-            product.category.some(prodCategory => 
-                pageCategories.includes(prodCategory)
-            )
-        );
+        // If page not found in product's pages array, check categories
+        // Get all categories of the page
+        const pageCategories = page.category.map(cat => cat._id.toString());
 
-        if (hasAccessViaCategory) {
+        // Find if any of user's products have matching categories
+        const productWithCategory = await Product.findOne({
+            _id: { $in: userActiveProductIds },
+            category: { $in: pageCategories }
+        });
+
+        if (productWithCategory) {
             req.page = page;
             return next();
         }
 
         return res.status(403).json({ 
-            message: 'Access denied. This page is not included in your products and its category does not match any of your products.'
+            message: 'Access denied. This page is not included in your products and its category is not in your products.'
         });
 
     } catch (error) {
@@ -523,25 +521,25 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             });
         }
 
-        // For regular users, get all products they have access to
+        // Get all products the user has access to
         const products = await Product.find({
             _id: { $in: activeProductIds }
         });
 
-        // Get all page IDs from products
+        // Get page IDs directly included in products
         const accessiblePageIds = products.reduce((acc, product) => [...acc, ...product.pages], []);
-        
-        // Get all categories from products
-        const accessibleCategories = products.reduce((acc, product) => [...acc, ...product.category], []);
 
-        // Find pages that either:
-        // 1. Are directly listed in product pages arrays OR
-        // 2. Belong to a category that's listed in any of the user's products
+        // Get all categories from user's products
+        const productCategories = products.reduce((acc, product) => [...acc, ...product.category], []);
+
+        // Find all pages that are either:
+        // 1. Directly included in product's pages array OR
+        // 2. Belong to a category that's included in any of user's products
         const pages = await Page.find({
             status,
             $or: [
                 { _id: { $in: accessiblePageIds } },
-                { 'category.name': { $in: accessibleCategories } }
+                { category: { $in: productCategories } }
             ]
         })
         .skip(skip)
@@ -553,7 +551,7 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
             status,
             $or: [
                 { _id: { $in: accessiblePageIds } },
-                { 'category.name': { $in: accessibleCategories } }
+                { category: { $in: productCategories } }
             ]
         });
 
