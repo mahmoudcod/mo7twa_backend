@@ -9,7 +9,6 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 
 // Middleware to check if user is admin
-// Middleware to check if user is admin
 const isAdmin = async (req, res, next) => {
     try {
         const token = req.header('Authorization').replace('Bearer ', '');
@@ -111,13 +110,8 @@ router.post('/', isAdmin, async (req, res) => {
 // Get All Categories (Filtered by user's product access)
 router.get('/', async (req, res) => {
     try {
-        // First authenticate the user
-        const authHeader = req.header('Authorization');
-        if (!authHeader) {
-            return res.status(401).json({ message: 'No authentication token provided' });
-        }
-
-        const token = authHeader.replace('Bearer ', '');
+        // Authenticate user
+        const token = req.header('Authorization').replace('Bearer ', '');
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findOne({ _id: decoded.id });
 
@@ -129,28 +123,45 @@ router.get('/', async (req, res) => {
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
 
-        let categoryQuery = {};
+        let query = {};
 
-        // If not admin, filter categories based on user's product access
+        // If not admin, only show categories from user's active products
         if (!user.isAdmin) {
-            const userActiveProductIds = user.productAccess
+            // Get user's active product IDs
+            const activeProductIds = user.productAccess
                 .filter(access => access.isActive)
                 .map(access => access.productId);
 
-            const products = await Product.find({
-                _id: { $in: userActiveProductIds }
+            // Get all products the user has access to
+            const userProducts = await Product.find({
+                _id: { $in: activeProductIds }
             });
 
-            const accessibleCategories = [...new Set(products.flatMap(product => product.category))];
-            categoryQuery.name = { $in: accessibleCategories };
+            if (!userProducts.length) {
+                return res.status(200).json({
+                    categories: [],
+                    totalCount: 0,
+                    currentPage: page,
+                    totalPages: 0
+                });
+            }
+
+            // Get all category names from user's products
+            const categoryNames = [...new Set(userProducts.flatMap(product => product.category))];
+            
+            // Only show categories that are in the user's products
+            query.name = { $in: categoryNames };
         }
 
-        const totalCount = await Category.countDocuments(categoryQuery);
-        const categories = await Category.find(categoryQuery)
+        // Get categories with pagination
+        const categories = await Category.find(query)
             .populate('subcategories')
             .populate('pages')
             .skip(skip)
-            .limit(limit);
+            .limit(limit)
+            .sort({ createdAt: -1 });
+
+        const totalCount = await Category.countDocuments(query);
 
         res.status(200).json({
             categories,
@@ -158,6 +169,7 @@ router.get('/', async (req, res) => {
             currentPage: page,
             totalPages: Math.ceil(totalCount / limit)
         });
+
     } catch (error) {
         console.error('Error in get categories:', error);
         res.status(401).json({ message: 'Authentication failed', error: error.message });
