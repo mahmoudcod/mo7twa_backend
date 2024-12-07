@@ -1,50 +1,133 @@
-
 // Category Routes (categories.js)
 const express = require('express');
 const Category = require('../models/category');
 const Subcategory = require('../models/sub');
 const Page = require('../models/page');
+const User = require('../models/users');
+const Product = require('../models/Product');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
 
-// Create Category
-router.post('/', async (req, res) => {
+// Middleware to authenticate user
+const authenticateUser = async (req, res, next) => {
     try {
-        const { pages, ...categoryData } = req.body;  // Extract pages and other category data
+        const token = req.header('Authorization').replace('Bearer ', '');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const user = await User.findOne({ _id: decoded.id });
 
-        // 1. Create the category
+        if (!user) {
+            throw new Error();
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        res.status(401).send({ error: 'Please authenticate.' });
+    }
+};
+
+// Middleware to check if user is admin
+const isAdmin = async (req, res, next) => {
+    if (!req.user || !req.user.isAdmin) {
+        return res.status(403).json({ message: 'Access denied. Admin only.' });
+    }
+    next();
+};
+
+// Middleware to check category access for reading
+const checkCategoryAccess = async (req, res, next) => {
+    try {
+        const categoryId = req.params.categoryId || req.params.id;
+        const category = await Category.findById(categoryId);
+        
+        if (!category) {
+            return res.status(404).json({ message: 'Category not found' });
+        }
+
+        // If user is admin, grant access
+        if (req.user.isAdmin) {
+            req.category = category;
+            return next();
+        }
+
+        // For regular users, check if they have access through their products
+        const userActiveProductIds = req.user.productAccess
+            .filter(access => access.isActive)
+            .map(access => access.productId);
+
+        const product = await Product.findOne({
+            _id: { $in: userActiveProductIds },
+            category: category.name
+        });
+
+        if (!product) {
+            return res.status(403).json({ 
+                message: 'Access denied. This category is not included in any of your active products.'
+            });
+        }
+
+        req.category = category;
+        next();
+    } catch (error) {
+        console.error('Error in checkCategoryAccess:', error);
+        res.status(500).json({ message: 'Error checking category access', error: error.message });
+    }
+};
+
+// Create Category (Admin Only)
+router.post('/', authenticateUser, isAdmin, async (req, res) => {
+    try {
+        const { pages, ...categoryData } = req.body;
         const newCategory = await Category.create(categoryData);
 
-        // 2. If there are pages to link, update their 'categories' field
         if (pages && pages.length > 0) {
             await Page.updateMany(
                 { _id: { $in: pages } },
-                { $push: { categories: newCategory._id } }  // Push the new category to the pages
+                { $push: { categories: newCategory._id } }
             );
         }
 
-        // 3. Optionally populate the new category with pages and subcategories
         const populatedCategory = await Category.findById(newCategory._id)
             .populate('subcategories')
             .populate('pages');
 
         res.status(201).json(populatedCategory);
     } catch (error) {
-        res.status(500).json({ message: 'Error creating category', error });
+        console.error('Error creating category:', error);
+        res.status(500).json({ message: 'Error creating category', error: error.message });
     }
 });
 
-// Get All Categories with Pagination
-router.get('/', async (req, res) => {
+// Get All Categories (Filtered by user's product access)
+router.get('/', authenticateUser, async (req, res) => {
     try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 10;
         const skip = (page - 1) * limit;
-        const totalCount = await Category.countDocuments();
-        const categories = await Category.find()
+
+        let categoryQuery = {};
+
+        // If not admin, filter categories based on user's product access
+        if (!req.user.isAdmin) {
+            const userActiveProductIds = req.user.productAccess
+                .filter(access => access.isActive)
+                .map(access => access.productId);
+
+            const products = await Product.find({
+                _id: { $in: userActiveProductIds }
+            });
+
+            const accessibleCategories = [...new Set(products.flatMap(product => product.category))];
+            categoryQuery.name = { $in: accessibleCategories };
+        }
+
+        const totalCount = await Category.countDocuments(categoryQuery);
+        const categories = await Category.find(categoryQuery)
             .populate('subcategories')
             .populate('pages')
             .skip(skip)
             .limit(limit);
+
         res.status(200).json({
             categories,
             totalCount,
@@ -52,95 +135,81 @@ router.get('/', async (req, res) => {
             totalPages: Math.ceil(totalCount / limit)
         });
     } catch (error) {
-        res.status(500).json({ message: 'Error fetching categories', error });
+        console.error('Error fetching categories:', error);
+        res.status(500).json({ message: 'Error fetching categories', error: error.message });
     }
 });
 
-//update category
-router.put('/:id', async (req, res) => {
+// Get Single Category
+router.get('/:id', authenticateUser, checkCategoryAccess, async (req, res) => {
     try {
-        const { id } = req.params;
-        const { removedPages, addedPages } = req.body; // Assume we pass pages to add and remove
-
-        // 1. Find and update the category with new pages
-        const updatedCategory = await Category.findByIdAndUpdate(id, req.body, { new: true })
+        const category = await Category.findById(req.params.id)
             .populate('subcategories')
             .populate('pages');
+        res.status(200).json(category);
+    } catch (error) {
+        console.error('Error fetching category:', error);
+        res.status(500).json({ message: 'Error fetching category', error: error.message });
+    }
+});
 
-        // 2. Remove the category reference from the removed pages
-        if (removedPages && removedPages.length > 0) {
-            await Page.updateMany(
-                { _id: { $in: removedPages } },
-                { $pull: { categories: id } }  // Pull the category from the pages
-            );
-        }
+// Update Category (Admin Only)
+router.put('/:id', authenticateUser, isAdmin, async (req, res) => {
+    try {
+        const updatedCategory = await Category.findByIdAndUpdate(
+            req.params.id,
+            req.body,
+            { new: true }
+        ).populate('subcategories').populate('pages');
 
-        // 3. Add the category reference to the added pages
-        if (addedPages && addedPages.length > 0) {
-            await Page.updateMany(
-                { _id: { $in: addedPages } },
-                { $push: { categories: id } }  // Push the category to the pages
-            );
+        if (!updatedCategory) {
+            return res.status(404).json({ message: 'Category not found' });
         }
 
         res.status(200).json(updatedCategory);
     } catch (error) {
-        res.status(500).json({ message: 'Error updating category', error });
+        console.error('Error updating category:', error);
+        res.status(500).json({ message: 'Error updating category', error: error.message });
     }
 });
 
-
-// Delete Category
-router.delete('/:id', async (req, res) => {
+// Delete Category (Admin Only)
+router.delete('/:id', authenticateUser, isAdmin, async (req, res) => {
     try {
-        const { id } = req.params;
-        const category = await Category.findById(id);
-
-        if (!category) {
+        const deletedCategory = await Category.findByIdAndDelete(req.params.id);
+        if (!deletedCategory) {
             return res.status(404).json({ message: 'Category not found' });
         }
 
-        // Update pages to remove category reference
-        await Page.updateMany({ category: id }, { $unset: { category: 1 } });
+        // Remove category reference from pages
+        await Page.updateMany(
+            { categories: deletedCategory._id },
+            { $pull: { categories: deletedCategory._id } }
+        );
 
-        // Delete subcategories
-        await Subcategory.deleteMany({ category: id });
-
-        await Category.findByIdAndDelete(id);
         res.status(200).json({ message: 'Category deleted successfully' });
     } catch (error) {
-        res.status(500).json({ message: 'Error deleting category', error });
+        console.error('Error deleting category:', error);
+        res.status(500).json({ message: 'Error deleting category', error: error.message });
     }
 });
 
-// Get Single Category by ID
-router.get('/:id', async (req, res) => {
-    try {
-        const { id } = req.params;
-        const category = await Category.findById(id)
-            .populate('subcategories')
-            .populate('pages');
-        if (!category) {
-            return res.status(404).json({ message: 'Category not found' });
-        }
-        res.status(200).json(category);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching category', error });
-    }
-});
-
-// Create Subcategory
-router.post('/:categoryId/subcategory', async (req, res) => {
+// Create Subcategory (Admin Only)
+router.post('/:categoryId/subcategory', authenticateUser, isAdmin, async (req, res) => {
     try {
         const { categoryId } = req.params;
         const subcategory = new Subcategory({ ...req.body, category: categoryId });
         await subcategory.save();
-        const category = await Category.findById(categoryId);
-        category.subcategories.push(subcategory._id);
-        await category.save();
+
+        // Update the parent category
+        await Category.findByIdAndUpdate(categoryId, {
+            $push: { subcategories: subcategory._id }
+        });
+
         res.status(201).json(subcategory);
     } catch (error) {
-        res.status(500).json({ message: 'Error creating subcategory', error });
+        console.error('Error creating subcategory:', error);
+        res.status(500).json({ message: 'Error creating subcategory', error: error.message });
     }
 });
 
