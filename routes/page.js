@@ -36,7 +36,7 @@ const authenticateUser = async (req, res, next) => {
 const checkProductAccess = async (req, res, next) => {
     try {
         const productId = req.query.productId || req.body.productId;
-        if (!productId) {
+        if (!productId && !user.isAdmin) {
             return res.status(400).json({ message: 'Product ID is required' });
         }
 
