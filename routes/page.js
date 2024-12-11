@@ -178,6 +178,25 @@ async function extractTextFromFile(file) {
     return text;
 }
 
+// New endpoint for markdown editor image uploads
+router.post('/upload', authenticateUser, upload.single('image'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No image file provided' });
+        }
+
+        const result = await cloudinary.uploader.upload(req.file.path);
+        
+        // Clean up the temporary file
+        fs.unlinkSync(req.file.path);
+
+        res.status(200).json({ url: result.secure_url });
+    } catch (error) {
+        console.error('Error uploading image:', error);
+        res.status(500).json({ message: 'Error uploading image', error: error.message });
+    }
+});
+
 // Update the page creation route in the backend
 router.post('/', authenticateUser, checkProductAccess, upload.single('image'), async (req, res) => {
     try {
@@ -416,8 +435,7 @@ router.put('/:id', authenticateUser, checkPageAccess, upload.single('image'), as
         page.description = description;
         page.userInstructions = instructions;
         page.image = imageUrl;
-         page.status = status || 'draft' 
-
+        page.status = status || 'draft';
 
         // Save the updated page
         await page.save();
