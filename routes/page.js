@@ -51,12 +51,12 @@ const checkProductAccess = async (req, res, next) => {
             access => access.productId.toString() === productId && access.isActive
         );
 
-        if (!productAccess) {
+        if (!productAccess && !user.isAdmin) {
             return res.status(403).json({ message: 'No active access to this product' });
         }
 
         // Check if access period has expired
-        if (new Date() > productAccess.endDate) {
+        if (new Date() > productAccess.endDate && !user.isAdmin) {
             productAccess.isActive = false;
             await user.save();
             return res.status(403).json({ message: 'Product access has expired' });
@@ -64,7 +64,7 @@ const checkProductAccess = async (req, res, next) => {
 
         // Check usage limit
         const product = await Product.findById(productId);
-        if (!product) {
+        if (!product && !user.isAdmin) {
             return res.status(404).json({ message: 'Product not found' });
         }
 
