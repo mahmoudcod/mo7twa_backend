@@ -35,14 +35,19 @@ const authenticateUser = async (req, res, next) => {
 // Middleware to check product access for a page
 const checkProductAccess = async (req, res, next) => {
     try {
-        const productId = req.query.productId || req.body.productId;
-        if (!productId) {
-            return res.status(400).json({ message: 'Product ID is required' });
-        }
-
         const user = await User.findById(req.user._id);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
+        }
+
+        // If user is admin, bypass product access check
+        if (user.isAdmin) {
+            return next();
+        }
+
+        const productId = req.query.productId || req.body.productId;
+        if (!productId) {
+            return res.status(400).json({ message: 'Product ID is required' });
         }
 
         // Get product access details
@@ -90,7 +95,7 @@ const checkProductAccess = async (req, res, next) => {
     }
 };
 
-// Middleware to check page access
+// Rest of the file remains unchanged
 const checkPageAccess = async (req, res, next) => {
     try {
         const pageId = req.params.id;
