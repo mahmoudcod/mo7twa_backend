@@ -184,40 +184,85 @@ router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
         const { name, description, category, instructions, status } = req.body; 
 
+        // Handle image upload
         let imageUrl = null;
         if (req.file) {
             const result = await cloudinary.uploader.upload(req.file.path);
             imageUrl = result.secure_url;
+            // Clean up the uploaded file
+            fs.unlinkSync(req.file.path);
         }
 
         // Validate categories
-        const categoryIds = Array.isArray(category) ? category : [category];
+        let categoryIds;
+        try {
+            // Try to parse if category is sent as a JSON string
+            categoryIds = typeof category === 'string' ? JSON.parse(category) : category;
+        } catch (e) {
+            // If parsing fails, assume it's a single category ID
+            categoryIds = [category];
+        }
+
+        // Ensure categoryIds is an array
+        categoryIds = Array.isArray(categoryIds) ? categoryIds : [categoryIds];
+
+        // Filter out any null, undefined, or empty string values
+        categoryIds = categoryIds.filter(id => id && id.trim());
+
+        if (categoryIds.length === 0) {
+            return res.status(400).json({ 
+                message: 'At least one category is required',
+                receivedCategory: category
+            });
+        }
+
+        // Validate that all category IDs are valid MongoDB ObjectIDs
+        const invalidIds = categoryIds.filter(id => !mongoose.Types.ObjectId.isValid(id));
+        if (invalidIds.length > 0) {
+            return res.status(400).json({ 
+                message: 'Invalid category ID format',
+                invalidIds,
+                receivedCategory: category
+            });
+        }
+
+        // Check if all categories exist in the database
         const validCategories = await Category.find({ _id: { $in: categoryIds } });
 
         if (validCategories.length !== categoryIds.length) {
-            return res.status(400).json({ message: 'One or more invalid categories' });
+            const foundIds = validCategories.map(cat => cat._id.toString());
+            const missingIds = categoryIds.filter(id => !foundIds.includes(id));
+            return res.status(400).json({ 
+                message: 'One or more categories not found',
+                missingCategories: missingIds,
+                receivedCategory: category,
+                validCategories: foundIds
+            });
         }
 
         const page = new Page({
             name,
             description,
             category: validCategories.map(cat => cat._id),
+            user: req.user._id,
             userInstructions: instructions,
             image: imageUrl,
-            user: req.user._id,
-            status: status || 'draft' 
+            status: status || 'draft'
         });
+
         await page.save();
-
-        // Add page to each category
-        await Promise.all(validCategories.map(category =>
-            Category.findByIdAndUpdate(category._id, { $push: { pages: page._id } })
-        ));
-
         res.status(201).json(page);
     } catch (error) {
-        console.error('Server error:', error);
-        res.status(500).json({ message: 'Error creating page', error: error.message });
+        console.error('Error creating page:', error);
+        // Clean up uploaded file if there was an error
+        if (req.file && req.file.path) {
+            fs.unlinkSync(req.file.path);
+        }
+        res.status(500).json({ 
+            message: 'Error creating page', 
+            error: error.message,
+            receivedCategory: req.body.category 
+        });
     }
 });
 
