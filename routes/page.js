@@ -56,7 +56,7 @@ const checkProductAccess = async (req, res, next) => {
         }
 
         // Check if access period has expired
-        if (new Date() > productAccess.endDate && !user.isAdmin) {
+        if (new Date() > productAccess.endDate) {
             productAccess.isActive = false;
             await user.save();
             return res.status(403).json({ message: 'Product access has expired' });
@@ -64,7 +64,7 @@ const checkProductAccess = async (req, res, next) => {
 
         // Check usage limit
         const product = await Product.findById(productId);
-        if (!product && !user.isAdmin) {
+        if (!product) {
             return res.status(404).json({ message: 'Product not found' });
         }
 
@@ -180,7 +180,7 @@ async function extractTextFromFile(file) {
 }
 
 // Update the page creation route in the backend
-router.post('/', authenticateUser, checkProductAccess, upload.single('image'), async (req, res) => {
+router.post('/', authenticateUser, upload.single('image'), async (req, res) => {
     try {
         const { name, description, category, instructions, status } = req.body; 
 
