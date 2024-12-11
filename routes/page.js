@@ -34,17 +34,18 @@ const authenticateUser = async (req, res, next) => {
 
 // Middleware to check product access for a page
 const checkProductAccess = async (req, res, next) => {
+
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+    }
+
     try {
         const productId = req.query.productId || req.body.productId;
         if (!productId && !user.isAdmin) {
             return res.status(400).json({ message: 'Product ID is required' });
         }
-
-        const user = await User.findById(req.user._id);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
         // Get product access details
         const productAccess = user.productAccess.find(
             access => access.productId.toString() === productId && access.isActive
