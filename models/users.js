@@ -106,7 +106,7 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Method to check if user has access to a product
-userSchema.methods.hasProductAccess = function(productId) {
+userSchema.methods.hasProductAccess = async function(productId) {
     const access = this.productAccess.find(
         access => access.productId.toString() === productId.toString()
     );
@@ -114,7 +114,15 @@ userSchema.methods.hasProductAccess = function(productId) {
     if (!access) return false;
     
     const now = new Date();
-    return access.endDate > now;
+    const isExpired = access.endDate <= now;
+    
+    // If expired, update isActive to false and save
+    if (isExpired && access.isActive) {
+        access.isActive = false;
+        await this.save();
+    }
+    
+    return !isExpired && access.isActive;
 };
 
 // Method to get product access details
@@ -154,6 +162,14 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
         this.productAccess.map(async (access) => {
             // Find the full product details
             const product = await mongoose.model('Product').findById(access.productId);
+            const now = new Date();
+            const isExpired = access.endDate <= now;
+            
+            // Update isActive if expired
+            if (isExpired && access.isActive) {
+                access.isActive = false;
+                await this.save();
+            }
             
             return {
                 productId: access.productId,
@@ -164,7 +180,7 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
                 lastUsed: access.lastUsed,
                 isActive: access.isActive,
                 remainingUsage: product ? product.promptLimit - access.usageCount : 0,
-                isExpired: access.endDate < new Date()
+                isExpired: isExpired
             };
         })
     );
@@ -174,6 +190,12 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
 
 // Method to track AI usage
 userSchema.methods.trackAIUsage = async function(productId, pageName, category, prompt, response) {
+    // First check if product access is still valid
+    const hasAccess = await this.hasProductAccess(productId);
+    if (!hasAccess) {
+        throw new Error('Product access has expired or is inactive');
+    }
+    
     this.aiUsageHistory.push({
         productId,
         pageName,

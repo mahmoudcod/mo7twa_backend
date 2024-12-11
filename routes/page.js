@@ -50,21 +50,16 @@ const checkProductAccess = async (req, res, next) => {
             return res.status(400).json({ message: 'Product ID is required' });
         }
 
-        // Get product access details
+        // Use enhanced hasProductAccess method which automatically handles expiration
+        const hasAccess = await user.hasProductAccess(productId);
+        if (!hasAccess) {
+            return res.status(403).json({ message: 'No active access to this product or access has expired' });
+        }
+
+        // Get product access details after checking access
         const productAccess = user.productAccess.find(
             access => access.productId.toString() === productId && access.isActive
         );
-
-        if (!productAccess) {
-            return res.status(403).json({ message: 'No active access to this product' });
-        }
-
-        // Check if access period has expired
-        if (new Date() > productAccess.endDate) {
-            productAccess.isActive = false;
-            await user.save();
-            return res.status(403).json({ message: 'Product access has expired' });
-        }
 
         // Check usage limit
         const product = await Product.findById(productId);
