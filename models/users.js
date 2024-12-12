@@ -25,6 +25,10 @@ const userProductAccessSchema = new mongoose.Schema({
     isActive: {
         type: Boolean,
         default: true
+    },
+    promptLimit: {
+        type: Number,
+        default: 0
     }
 });
 
@@ -162,7 +166,8 @@ userSchema.methods.getProductsWithAccessDetails = async function() {
                 usageCount: access.usageCount,
                 lastUsed: access.lastUsed,
                 isActive: access.isActive,
-                remainingUsage: product ? product.promptLimit - access.usageCount : 0,
+                promptLimit: access.promptLimit,
+                remainingUsage: access.promptLimit - access.usageCount,
                 isExpired: isExpired
             };
         })
@@ -179,6 +184,16 @@ userSchema.methods.trackAIUsage = async function(productId, pageName, category, 
         throw new Error('Product access has expired or is inactive');
     }
     
+    const access = this.getProductAccess(productId);
+    if (!access) {
+        throw new Error('Product access not found');
+    }
+
+    // Check if user has exceeded their prompt limit
+    if (access.usageCount >= access.promptLimit) {
+        throw new Error('Prompt limit exceeded for this product');
+    }
+    
     this.aiUsageHistory.push({
         productId,
         pageName,
@@ -188,11 +203,8 @@ userSchema.methods.trackAIUsage = async function(productId, pageName, category, 
         timestamp: new Date()
     });
     
-    const access = this.getProductAccess(productId);
-    if (access) {
-        access.usageCount += 1;
-        access.lastUsed = new Date();
-    }
+    access.usageCount += 1;
+    access.lastUsed = new Date();
     
     await this.save();
 };

@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const User = require('../models/users');
 const Product = require('../models/Product');
+const { ObjectId } = require('mongoose').Types;
 const router = express.Router();
 
 // Middleware to check if user is admin
@@ -243,7 +244,7 @@ router.delete('/admin/users/:userId', isAdmin, async (req, res) => {
 router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, res) => {
     try {
         const { userId } = req.params;
-        const { productId, accessPeriodDays } = req.body;
+        const { productId, accessPeriodDays, promptLimit } = req.body;
 
         const user = await User.findById(userId);
         if (!user) {
@@ -271,6 +272,7 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
             existingAccess.endDate = endDate;
             existingAccess.usageCount = 0;
             existingAccess.isActive = true;
+            if (promptLimit !== undefined) existingAccess.promptLimit = promptLimit;
         } else {
             // Grant new access
             user.productAccess.push({
@@ -278,7 +280,8 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
                 startDate,
                 endDate,
                 usageCount: 0,
-                isActive: true
+                isActive: true,
+                promptLimit: promptLimit || 0
             });
         }
 
@@ -290,7 +293,8 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
                 productId,
                 startDate,
                 endDate,
-                accessPeriodDays: accessPeriodDays || product.accessPeriodDays
+                accessPeriodDays: accessPeriodDays || product.accessPeriodDays,
+                promptLimit: promptLimit || 0
             }
         });
     } catch (error) {
@@ -298,11 +302,11 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
     }
 });
 
-// NEW ROUTE: Update user product access details
+// Update user product access details
 router.put('/admin/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
     try {
         const { userId, productId } = req.params;
-        const { endDate, usageCount, isActive } = req.body;
+        const { endDate, isActive, promptLimit } = req.body;
 
         // Validate user ID
         if (!ObjectId.isValid(userId)) {
@@ -331,10 +335,10 @@ router.put('/admin/users/:userId/product-access/:productId', isAdmin, async (req
             });
         }
 
-        // Update the fields if provided
+        // Update fields
         if (endDate) productAccess.endDate = new Date(endDate);
-        if (typeof usageCount !== 'undefined') productAccess.usageCount = usageCount;
         if (typeof isActive !== 'undefined') productAccess.isActive = isActive;
+        if (typeof promptLimit !== 'undefined') productAccess.promptLimit = promptLimit;
 
         await user.save();
 
@@ -346,7 +350,8 @@ router.put('/admin/users/:userId/product-access/:productId', isAdmin, async (req
                 startDate: productAccess.startDate,
                 endDate: productAccess.endDate,
                 usageCount: productAccess.usageCount,
-                isActive: productAccess.isActive
+                isActive: productAccess.isActive,
+                promptLimit: productAccess.promptLimit
             }
         });
 
@@ -360,7 +365,6 @@ router.put('/admin/users/:userId/product-access/:productId', isAdmin, async (req
     }
 });
 
-const { ObjectId } = require('mongoose').Types;
 
 // Remove product access from user
 router.delete('/admin/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
