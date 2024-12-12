@@ -117,76 +117,6 @@ router.post('/create-admin', async (req, res) => {
     }
 });
 
-// Admin: Edit user product settings
-router.put('/admin/users/:userId/product-settings/:productId', isAdmin, async (req, res) => {
-    try {
-        const { userId, productId } = req.params;
-        const { customPromptLimit, customAccessPeriodDays, customPages } = req.body;
-
-        // Validate user exists
-        const user = await User.findById(userId);
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Validate product exists
-        const product = await Product.findById(productId);
-        if (!product) {
-            return res.status(404).json({ message: 'Product not found' });
-        }
-
-        // Find existing product settings or create new one
-        let productSettings = user.productSettings.find(
-            settings => settings.productId.toString() === productId
-        );
-
-        if (productSettings) {
-            // Update existing settings
-            if (customPromptLimit !== undefined) productSettings.customPromptLimit = customPromptLimit;
-            if (customAccessPeriodDays !== undefined) productSettings.customAccessPeriodDays = customAccessPeriodDays;
-            if (customPages !== undefined) productSettings.customPages = customPages;
-        } else {
-            // Create new settings
-            user.productSettings.push({
-                productId,
-                customPromptLimit,
-                customAccessPeriodDays,
-                customPages,
-                startDate: new Date(),
-                isActive: true
-            });
-        }
-
-        // If access period is modified, update the product access end date
-        if (customAccessPeriodDays !== undefined) {
-            const productAccess = user.productAccess.find(
-                access => access.productId.toString() === productId
-            );
-
-            if (productAccess) {
-                const newEndDate = new Date(productAccess.startDate);
-                newEndDate.setDate(newEndDate.getDate() + customAccessPeriodDays);
-                productAccess.endDate = newEndDate;
-            }
-        }
-
-        await user.save();
-
-        res.json({
-            message: 'User product settings updated successfully',
-            productSettings: user.productSettings.find(
-                settings => settings.productId.toString() === productId
-            )
-        });
-    } catch (error) {
-        res.status(500).json({ 
-            message: 'Error updating user product settings', 
-            error: error.message 
-        });
-    }
-});
-
-
 // Admin: Get all users with pagination
 router.get('/admin/users', isAdmin, async (req, res) => {
     const { page = 1, limit = 30 } = req.query;
@@ -365,6 +295,68 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
         });
     } catch (error) {
         res.status(500).json({ message: 'Error granting product access', error: error.message });
+    }
+});
+
+// NEW ROUTE: Update user product access details
+router.put('/admin/users/:userId/product-access/:productId', isAdmin, async (req, res) => {
+    try {
+        const { userId, productId } = req.params;
+        const { endDate, usageCount, isActive } = req.body;
+
+        // Validate user ID
+        if (!ObjectId.isValid(userId)) {
+            return res.status(400).json({ success: false, message: 'Invalid user ID format' });
+        }
+
+        // Validate product ID
+        if (!ObjectId.isValid(productId)) {
+            return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
+
+        // Find the product access entry
+        const productAccess = user.productAccess.find(
+            access => access.productId.toString() === productId
+        );
+
+        if (!productAccess) {
+            return res.status(404).json({
+                success: false,
+                message: 'Product access not found for this user'
+            });
+        }
+
+        // Update the fields if provided
+        if (endDate) productAccess.endDate = new Date(endDate);
+        if (typeof usageCount !== 'undefined') productAccess.usageCount = usageCount;
+        if (typeof isActive !== 'undefined') productAccess.isActive = isActive;
+
+        await user.save();
+
+        res.json({
+            success: true,
+            message: 'Product access updated successfully',
+            productAccess: {
+                productId: productAccess.productId,
+                startDate: productAccess.startDate,
+                endDate: productAccess.endDate,
+                usageCount: productAccess.usageCount,
+                isActive: productAccess.isActive
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating product access:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating product access',
+            error: error.message
+        });
     }
 });
 
