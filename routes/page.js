@@ -347,6 +347,7 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
     }
 });
 
+
 // Get all pages for a user
 router.get('/my-pages', authenticateUser,checkProductAccess, async (req, res) => {
     try {
