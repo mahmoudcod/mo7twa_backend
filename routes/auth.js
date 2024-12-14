@@ -281,7 +281,7 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
                 endDate,
                 usageCount: 0,
                 isActive: true,
-                promptLimit: promptLimit || 0
+                promptLimit: promptLimit !== undefined ? promptLimit : product.promptLimit
             });
         }
 
@@ -294,7 +294,7 @@ router.post('/admin/users/:userId/grant-product-access', isAdmin, async (req, re
                 startDate,
                 endDate,
                 accessPeriodDays: accessPeriodDays || product.accessPeriodDays,
-                promptLimit: promptLimit || 0
+                promptLimit: promptLimit !== undefined ? promptLimit : product.promptLimit
             }
         });
     } catch (error) {
