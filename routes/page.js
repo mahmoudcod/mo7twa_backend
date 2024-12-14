@@ -69,7 +69,7 @@ const checkProductAccess = async (req, res, next) => {
 
         // If this is a generate request, check and decrement usage
         if (req.path === '/generate') {
-            if (productAccess.usageCount >= product.promptLimit) {
+            if (req.remainingUsage <= 0) {
                 return res.status(403).json({ message: 'Usage limit exceeded for this product' });
             }
 
