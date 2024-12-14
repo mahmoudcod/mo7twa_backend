@@ -299,11 +299,15 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
 router.post('/generate', authenticateUser, upload.single('file'), checkProductAccess, async (req, res) => {
     try {
         const { userInput = '', instructions } = req.body;
+        let finalInput = userInput;
 
         // If a file is uploaded, extract text from it
         if (req.file) {
             const extractedText = await extractTextFromFile(req.file);
-            userInput += ` ${extractedText}`; 
+            finalInput += ` ${extractedText}`; 
+            
+            // Clean up uploaded file
+            fs.unlinkSync(req.file.path);
         }
 
         // Send request to OpenAI API
@@ -315,7 +319,7 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
             model: "gpt-4o-mini-2024-07-18",
             messages: [
                 { role: "system", content: instructions || "You are a helpful assistant." },
-                { role: "user", content: userInput }
+                { role: "user", content: finalInput }
             ]
         }, {
             headers: {
@@ -326,17 +330,28 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
 
         const aiOutput = response.data.choices[0].message.content;
 
-        // Save AI interaction with product usage info
-        const aiInteraction = {
-            user: req.user._id,
-            userInput,
+        // Get the user and track AI usage
+        const user = await User.findById(req.user._id);
+        await user.trackAIUsage(
+            req.productAccess.productId,
+            'AI Chat', // pageName
+            'Chat', // category
+            finalInput, // prompt
+            aiOutput // response
+        );
+
+        // Also save to aiInteractions for chat history
+        user.aiInteractions.push({
+            userInput: finalInput,
             aiOutput,
-            remainingUsage: req.remainingUsage
-        };
+            timestamp: new Date()
+        });
+        await user.save();
 
         res.json({
             output: aiOutput,
-            remainingUsage: req.remainingUsage
+            remainingUsage: req.remainingUsage,
+            timestamp: new Date()
         });
     } catch (error) {
         console.error('Error generating AI response:', error);
