@@ -3,6 +3,22 @@ const router = express.Router();
 const Product = require('../models/Product');
 const User = require('../models/users');
 
+// Middleware to get product by ID
+async function getProduct(req, res, next) {
+    let product;
+    try {
+        product = await Product.findById(req.params.id);
+        if (product == null) {
+            return res.status(404).json({ message: 'Cannot find product' });
+        }
+    } catch (err) {
+        return res.status(500).json({ message: err.message });
+    }
+
+    req.product = product;
+    next();
+}
+
 // Get all products with pagination
 router.get('/', async (req, res) => {
     try {
@@ -56,7 +72,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a product
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', getProduct, async (req, res) => {
     try {
         if (req.body.name != null) {
             req.product.name = req.body.name;
@@ -118,7 +134,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Delete a product
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', getProduct, async (req, res) => {
     try {
         await req.product.deleteOne();
         res.json({ message: 'Product deleted successfully' });
