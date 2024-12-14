@@ -1,9 +1,9 @@
-
 // Category Routes (categories.js)
 const express = require('express');
 const Category = require('../models/category');
 const Subcategory = require('../models/sub');
 const Page = require('../models/page');
+const Product = require('../models/Product');
 const router = express.Router();
 
 // Create Category
@@ -101,10 +101,16 @@ router.delete('/:id', async (req, res) => {
         }
 
         // Update pages to remove category reference
-        await Page.updateMany({ category: id }, { $unset: { category: 1 } });
+        await Page.updateMany({ categories: id }, { $pull: { categories: id } });
 
         // Delete subcategories
         await Subcategory.deleteMany({ category: id });
+
+        // Remove category from products
+        await Product.updateMany(
+            { category: id },
+            { $pull: { category: id } }
+        );
 
         await Category.findByIdAndDelete(id);
         res.status(200).json({ message: 'Category deleted successfully' });

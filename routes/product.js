@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Product = require('../models/Product');
 const User = require('../models/users');
+const Category = require('../models/category');
 
 // Middleware to get product by ID
 async function getProduct(req, res, next) {
@@ -136,7 +137,15 @@ router.get('/:id', async (req, res) => {
 // Delete a product
 router.delete('/:id', getProduct, async (req, res) => {
     try {
-        await req.product.deleteOne();
+        const product = req.product;
+        
+        // Remove product from categories
+        await Category.updateMany(
+            { products: product._id },
+            { $pull: { products: product._id } }
+        );
+
+        await product.deleteOne();
         res.json({ message: 'Product deleted successfully' });
     } catch (err) {
         res.status(500).json({ message: 'Error deleting product: ' + err.message });

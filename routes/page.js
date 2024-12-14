@@ -623,9 +623,21 @@ router.get('/published', async (req, res) => {
 // Delete Page
 router.delete('/:id', authenticateUser, checkPageAccess, async (req, res) => {
     try {
-        await Category.findByIdAndUpdate(req.page.category, { $pull: { pages: req.page._id } });
+        const page = req.page;
 
-        await Page.findByIdAndDelete(req.page._id);
+        // Remove page from categories
+        await Category.updateMany(
+            { pages: page._id },
+            { $pull: { pages: page._id } }
+        );
+
+        // Remove page from products
+        await Product.updateMany(
+            { pages: page._id },
+            { $pull: { pages: page._id } }
+        );
+
+        await Page.findByIdAndDelete(page._id);
 
         await User.findByIdAndUpdate(req.user._id, { $pull: { aiInteractions: req.page._id } });
 
