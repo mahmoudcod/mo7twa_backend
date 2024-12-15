@@ -67,19 +67,14 @@ const checkProductAccess = async (req, res, next) => {
             return res.status(404).json({ message: 'Product not found' });
         }
 
-        // If this is a generate request, check and decrement usage
+        // If this is a generate request, check usage limit
         if (req.path === '/generate') {
             if (productAccess.usageCount >= productAccess.promptLimit) {
                 return res.status(403).json({ message: 'Usage limit exceeded for this product' });
             }
 
-            // Increment usage count
-            productAccess.usageCount += 1;
-            productAccess.lastUsed = new Date();
-            await user.save();
-
             // Add remaining usage info to request
-            req.remainingUsage = product.promptLimit - productAccess.usageCount;
+            req.remainingUsage = productAccess.promptLimit - productAccess.usageCount;
         }
 
         req.productAccess = productAccess;
@@ -348,9 +343,15 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
         });
         await user.save();
 
+        // Get updated remaining usage after trackAIUsage has incremented the count
+        const updatedAccess = user.productAccess.find(
+            access => access.productId.toString() === req.productAccess.productId.toString()
+        );
+        const remainingUsage = updatedAccess.promptLimit - updatedAccess.usageCount;
+
         res.json({
             output: aiOutput,
-            remainingUsage: req.remainingUsage,
+            remainingUsage,
             timestamp: new Date()
         });
     } catch (error) {
