@@ -2,7 +2,7 @@ const express = require('express');
 const Page = require('../models/page');
 const User = require('../models/users');
 const Category = require('../models/category');
-const Product = require('../models/Product'); 
+const Product = require('../models/Product');
 const router = express.Router();
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
@@ -75,7 +75,7 @@ const checkProductAccess = async (req, res, next) => {
         // If this is a generate request, check usage limit
         if (req.path === '/generate') {
             if (productAccess.usageCount >= productAccess.promptLimit) {
-                return res.status(403).json({ 
+                return res.status(403).json({
                     message: 'Usage limit exceeded for this product',
                     productId: productId,
                     usageCount: productAccess.usageCount,
@@ -95,18 +95,20 @@ const checkProductAccess = async (req, res, next) => {
     }
 };
 
-// Rest of the file remains unchanged
+// Helper function to check page access
 const checkPageAccess = async (req, res, next) => {
     try {
         const pageId = req.params.id;
-        const page = await Page.findById(pageId).populate('category');
-        
+
+        // Fetch page and user concurrently
+        const [page, user] = await Promise.all([
+            Page.findById(pageId).populate('category'),
+            User.findById(req.user._id)
+        ]);
+
         if (!page) {
             return res.status(404).json({ message: 'Page not found' });
         }
-
-        // Get user's active product access
-        const user = await User.findById(req.user._id);
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
         }
@@ -117,44 +119,48 @@ const checkPageAccess = async (req, res, next) => {
             return next();
         }
 
-        // Get all products that user has active access to
-        const userActiveProductIds = user.productAccess
-            .filter(access => access.isActive)
-            .map(access => access.productId);
-
-        // First check if any of user's products directly include this page
-        const productWithPage = await Product.findOne({
-            _id: { $in: userActiveProductIds },
-            pages: pageId
-        });
-
-        if (productWithPage) {
+        // Check if user has access to the page
+        const hasAccess = await checkUserPageAccess(user, page);
+        if (hasAccess) {
             req.page = page;
             return next();
         }
 
-        // If page not found in product's pages array, check categories
-        // Get all categories of the page
-        const pageCategories = page.category.map(cat => cat._id.toString());
-
-        // Find if any of user's products have matching categories
-        const productWithCategory = await Product.findOne({
-            _id: { $in: userActiveProductIds },
-            category: { $in: pageCategories }
-        });
-
-        if (productWithCategory) {
-            req.page = page;
-            return next();
-        }
-
-        return res.status(403).json({ 
+        return res.status(403).json({
             message: 'Access denied. This page is not included in your products and its category is not in your products.'
         });
 
     } catch (error) {
         console.error('Error in checkPageAccess:', error);
         res.status(500).json({ message: 'Error checking page access', error: error.message });
+    }
+};
+
+// Helper function to check if a user has access to a page
+const checkUserPageAccess = async (user, page) => {
+    try {
+        const userActiveProductIds = user.productAccess
+            .filter(access => access.isActive)
+            .map(access => access.productId);
+
+        if (userActiveProductIds.length === 0) {
+            return false;
+        }
+
+        const pageCategories = page.category.map(cat => cat._id.toString());
+
+        const productWithAccess = await Product.findOne({
+            _id: { $in: userActiveProductIds },
+            $or: [
+                { pages: page._id },
+                { category: { $in: pageCategories } }
+            ]
+        });
+
+        return !!productWithAccess;
+    } catch (error) {
+        console.error('Error in checkUserPageAccess:', error);
+        return false;
     }
 };
 
@@ -191,7 +197,7 @@ router.post('/upload', authenticateUser, upload.single('image'), async (req, res
         }
 
         const result = await cloudinary.uploader.upload(req.file.path);
-        
+
         // Clean up the temporary file
         fs.unlinkSync(req.file.path);
 
@@ -205,7 +211,7 @@ router.post('/upload', authenticateUser, upload.single('image'), async (req, res
 // Update the page creation route in the backend
 router.post('/', authenticateUser, checkProductAccess, upload.single('image'), async (req, res) => {
     try {
-        const { name, description, category, instructions, status } = req.body; 
+        const { name, description, category, instructions, status } = req.body;
 
         let imageUrl = null;
         if (req.file) {
@@ -228,7 +234,7 @@ router.post('/', authenticateUser, checkProductAccess, upload.single('image'), a
             userInstructions: instructions,
             image: imageUrl,
             user: req.user._id,
-            status: status || 'draft' 
+            status: status || 'draft'
         });
         await page.save();
 
@@ -257,8 +263,8 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
         }
 
         // Generate a base name for cloning
-        const baseName = originalPage.name.replace(/ c\d+$/, ''); 
-        const regex = new RegExp(`^${baseName} c(\\d+)$`); 
+        const baseName = originalPage.name.replace(/ c\d+$/, '');
+        const regex = new RegExp(`^${baseName} c(\\d+)$`);
         const allPages = await Page.find({ name: { $regex: regex } });
 
         // Determine the next suffix
@@ -277,11 +283,11 @@ router.post('/:id/clone', authenticateUser, async (req, res) => {
         const clonedPage = new Page({
             name: newName,
             description: originalPage.description,
-            category: originalPage.category.map(cat => cat._id), 
+            category: originalPage.category.map(cat => cat._id),
             userInstructions: originalPage.userInstructions,
-            image: originalPage.image, 
-            user: req.user._id, 
-            status: originalPage.status 
+            image: originalPage.image,
+            user: req.user._id,
+            status: originalPage.status
         });
 
         await clonedPage.save();
@@ -315,8 +321,8 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
         // If a file is uploaded, extract text from it
         if (req.file) {
             const extractedText = await extractTextFromFile(req.file);
-            finalInput += ` ${extractedText}`; 
-            
+            finalInput += ` ${extractedText}`;
+
             // Clean up uploaded file
             fs.unlinkSync(req.file.path);
         }
@@ -376,15 +382,15 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
         });
     } catch (error) {
         console.error('Error generating AI response:', error);
-        res.status(500).json({ 
-            message: 'Error generating AI response', 
-            error: error.message 
+        res.status(500).json({
+            message: 'Error generating AI response',
+            error: error.message
         });
     }
 });
 
 // Get all pages for a user
-router.get('/my-pages', authenticateUser,checkProductAccess, async (req, res) => {
+router.get('/my-pages', authenticateUser, checkProductAccess, async (req, res) => {
     try {
         if (!req.user.isAdmin) {
             return res.status(403).json({ message: 'Access denied. Admin only.' });
@@ -409,7 +415,7 @@ router.get('/all', authenticateUser, async (req, res) => {
             .skip(skip)
             .limit(Number(limit))
             .populate('category')
-            .populate('user', 'email'); 
+            .populate('user', 'email');
 
         const totalCount = await Page.countDocuments();
 
@@ -427,16 +433,16 @@ router.get('/:id', authenticateUser, checkPageAccess, async (req, res) => {
 // Update Page
 router.put('/:id', authenticateUser, checkPageAccess, upload.single('image'), async (req, res) => {
     try {
-        const { name, description, category, instructions,status } = req.body;
+        const { name, description, category, instructions, status } = req.body;
 
         let page = req.page;
 
         // Handle category updates (for multiple categories)
         if (category) {
-            const newCategories = Array.isArray(category) ? category : [category]; 
+            const newCategories = Array.isArray(category) ? category : [category];
 
             // Remove page from old categories
-            const oldCategories = page.category.map(cat => cat._id.toString());  
+            const oldCategories = page.category.map(cat => cat._id.toString());
             for (const oldCatId of oldCategories) {
                 if (!newCategories.includes(oldCatId)) {
                     await Category.findByIdAndUpdate(oldCatId, { $pull: { pages: page._id } });
@@ -491,7 +497,7 @@ router.put('/:id/status', authenticateUser, checkPageAccess, async (req, res) =>
 
         // Validate status input
         if (!status) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 message: 'Status is required',
                 validStatuses: ['published', 'draft']
             });
@@ -499,14 +505,14 @@ router.put('/:id/status', authenticateUser, checkPageAccess, async (req, res) =>
 
         const normalizedStatus = status.toLowerCase();
         if (!['published', 'draft'].includes(normalizedStatus)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 message: 'Invalid status. Must be "published" or "draft"'
             });
         }
 
         // Validate status transition
         if (!Page.validateStatusTransition(req.page.status, normalizedStatus)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 message: `Invalid status transition from ${req.page.status} to ${normalizedStatus}`
             });
         }
@@ -536,9 +542,9 @@ router.put('/:id/status', authenticateUser, checkPageAccess, async (req, res) =>
 
     } catch (error) {
         console.error('Status update error:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             message: 'Error updating page status',
-            error: error.message 
+            error: error.message
         });
     }
 });
@@ -596,10 +602,10 @@ router.get('/status/:status', authenticateUser, async (req, res) => {
                 { category: { $in: productCategories } }
             ]
         })
-        .skip(skip)
-        .limit(limit)
-        .populate('category')
-        .sort({ createdAt: -1 });
+            .skip(skip)
+            .limit(limit)
+            .populate('category')
+            .sort({ createdAt: -1 });
 
         const total = await Page.countDocuments({
             status,
@@ -649,9 +655,9 @@ router.get('/published', async (req, res) => {
 
     } catch (error) {
         console.error('Published pages retrieval error:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             message: 'Error fetching published pages',
-            error: error.message 
+            error: error.message
         });
     }
 });
