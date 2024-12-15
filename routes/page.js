@@ -45,7 +45,8 @@ const checkProductAccess = async (req, res, next) => {
             return next();
         }
 
-        const productId = req.query.productId || req.body.productId;
+        // Get productId from query params, body, or headers
+        const productId = req.query.productId || req.body.productId || req.header('X-Product-ID');
         if (!productId) {
             return res.status(400).json({ message: 'Product ID is required' });
         }
@@ -61,6 +62,10 @@ const checkProductAccess = async (req, res, next) => {
             access => access.productId.toString() === productId && access.isActive
         );
 
+        if (!productAccess) {
+            return res.status(403).json({ message: 'Product access not found or inactive' });
+        }
+
         // Check usage limit
         const product = await Product.findById(productId);
         if (!product) {
@@ -70,7 +75,12 @@ const checkProductAccess = async (req, res, next) => {
         // If this is a generate request, check usage limit
         if (req.path === '/generate') {
             if (productAccess.usageCount >= productAccess.promptLimit) {
-                return res.status(403).json({ message: 'Usage limit exceeded for this product' });
+                return res.status(403).json({ 
+                    message: 'Usage limit exceeded for this product',
+                    productId: productId,
+                    usageCount: productAccess.usageCount,
+                    promptLimit: productAccess.promptLimit
+                });
             }
 
             // Add remaining usage info to request
@@ -296,6 +306,12 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
         const { userInput = '', instructions } = req.body;
         let finalInput = userInput;
 
+        // Ensure we have the productId
+        const productId = req.body.productId || req.query.productId || req.header('X-Product-ID');
+        if (!productId) {
+            return res.status(400).json({ message: 'Product ID is required' });
+        }
+
         // If a file is uploaded, extract text from it
         if (req.file) {
             const extractedText = await extractTextFromFile(req.file);
@@ -325,14 +341,14 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
 
         const aiOutput = response.data.choices[0].message.content;
 
-        // Get the user and track AI usage
+        // Get the user and track AI usage for the specific product
         const user = await User.findById(req.user._id);
         await user.trackAIUsage(
-            req.productAccess.productId,
-            'AI Chat', // pageName
-            'Chat', // category
-            finalInput, // prompt
-            aiOutput // response
+            productId,  // Ensure we're using the correct productId
+            'AI Chat',
+            'Chat',
+            finalInput,
+            aiOutput
         );
 
         // Also save to aiInteractions for chat history
@@ -343,15 +359,19 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
         });
         await user.save();
 
-        // Get updated remaining usage after trackAIUsage has incremented the count
+        // Get updated remaining usage for this specific product
         const updatedAccess = user.productAccess.find(
-            access => access.productId.toString() === req.productAccess.productId.toString()
+            access => access.productId.toString() === productId
         );
         const remainingUsage = updatedAccess.promptLimit - updatedAccess.usageCount;
 
+        // Return product-specific usage information
         res.json({
             output: aiOutput,
             remainingUsage,
+            productId,
+            usageCount: updatedAccess.usageCount,
+            promptLimit: updatedAccess.promptLimit,
             timestamp: new Date()
         });
     } catch (error) {
@@ -362,7 +382,6 @@ router.post('/generate', authenticateUser, upload.single('file'), checkProductAc
         });
     }
 });
-
 
 // Get all pages for a user
 router.get('/my-pages', authenticateUser,checkProductAccess, async (req, res) => {
